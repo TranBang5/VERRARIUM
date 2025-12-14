@@ -133,58 +133,7 @@ namespace Verrarium.Editor
             // World Section
             CreateSection(gridContainer, "World", new string[] { "Size X", "Size Y" });
 
-            // Advanced Toggle Button (full-width)
-            CreateAdvancedToggleButton(panel);
-
-            // Advanced Section Root (ẩn mặc định, hiển thị dạng card full-width)
-            GameObject advancedSection = new GameObject("AdvancedSection");
-            advancedSection.transform.SetParent(panel.transform, false);
-            advancedSection.SetActive(false);
-
-            VerticalLayoutGroup advancedLayout = advancedSection.AddComponent<VerticalLayoutGroup>();
-            advancedLayout.padding = new RectOffset(0, 0, 0, 0);
-            advancedLayout.childControlWidth = true;
-            advancedLayout.childControlHeight = false;
-            advancedLayout.childForceExpandWidth = true;
-
-            LayoutElement advancedLayoutElement = advancedSection.AddComponent<LayoutElement>();
-            advancedLayoutElement.preferredHeight = 0;
-            advancedLayoutElement.flexibleHeight = 0;
-
-            CreateSection(advancedSection, "Advanced", new string[] { "Base Metabolic Rate" });
-
             return panel;
-        }
-
-        private static void CreateAdvancedToggleButton(GameObject parent)
-        {
-            GameObject advancedToggle = new GameObject("AdvancedToggleButton");
-            advancedToggle.transform.SetParent(parent.transform, false);
-
-            RectTransform advRect = advancedToggle.AddComponent<RectTransform>();
-            advRect.sizeDelta = new Vector2(0, 36);
-
-            Image advBg = advancedToggle.AddComponent<Image>();
-            advBg.color = new Color(0.2f, 0.22f, 0.28f, 1f);
-
-            Button advButton = advancedToggle.AddComponent<Button>();
-
-            HorizontalLayoutGroup layout = advancedToggle.AddComponent<HorizontalLayoutGroup>();
-            layout.childAlignment = TextAnchor.MiddleCenter;
-            layout.padding = new RectOffset(12, 12, 6, 6);
-            layout.childForceExpandWidth = true;
-
-            GameObject advText = new GameObject("Text");
-            advText.transform.SetParent(advancedToggle.transform, false);
-            TextMeshProUGUI advTextComp = advText.AddComponent<TextMeshProUGUI>();
-            advTextComp.text = "Advanced Settings";
-            advTextComp.fontSize = 14;
-            advTextComp.alignment = TextAlignmentOptions.Center;
-
-            RectTransform advTextRect = advText.GetComponent<RectTransform>();
-            advTextRect.anchorMin = Vector2.zero;
-            advTextRect.anchorMax = Vector2.one;
-            advTextRect.sizeDelta = Vector2.zero;
         }
 
         private static GameObject CreateSection(GameObject parent, string title, string[] controls)

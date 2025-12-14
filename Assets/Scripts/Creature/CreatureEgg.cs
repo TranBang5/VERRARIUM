@@ -13,7 +13,7 @@ namespace Verrarium.Creature
     public class CreatureEgg : MonoBehaviour
     {
         [Header("Egg Settings")]
-        [SerializeField] private float incubationDuration = 7f; // Thời gian ấp trứng (giây)
+        [SerializeField] private float incubationDuration = 60f; // Thời gian ấp trứng (giây) - tăng từ 30s lên 60s để làm chậm simulation hơn nữa
         
         private Genome genome;
         private NEATNetwork brain;

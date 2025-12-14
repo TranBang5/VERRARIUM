@@ -32,12 +32,17 @@ namespace Verrarium.Creature
         private float currentHealth = 100f;
         private float maturity = 0f; // 0 = mới sinh, 1 = trưởng thành
         private float age = 0f;
+        private bool isPaused = false;
 
         [Header("Metabolism")]
-        [SerializeField] private float baseMetabolicRate = 0.8f; // Năng lượng tiêu thụ mỗi giây
-        [SerializeField] private float movementEnergyCost = 0.5f; // Năng lượng tiêu thụ khi di chuyển
-        [SerializeField] private float agingStartMaturity = 0.8f; // Bắt đầu lão hóa khi đạt 80% trưởng thành
-        [SerializeField] private float agingDamageRate = 1.0f; // Sát thương mỗi giây do lão hóa
+        [SerializeField] private float baseMetabolicRate = 0.12f; // Giảm từ 0.2f xuống 0.12f - tiêu thụ ít năng lượng hơn nhiều, sống lâu hơn
+        [SerializeField] private float movementEnergyCost = 0.15f; // Giảm từ 0.2f xuống 0.15f - di chuyển ít tốn năng lượng hơn
+        [SerializeField] private float agingStartMaturity = 0.99f; // Tăng từ 0.98f lên 0.99f - lão hóa muộn hơn nữa
+        [SerializeField] private float agingDamageRate = 0.3f; // Giảm từ 0.5f xuống 0.3f - lão hóa ít sát thương hơn nhiều, sống lâu hơn
+        
+        [Header("Starvation")]
+        [SerializeField] private float starvationThreshold = 0.25f; // Giảm từ 0.3f xuống 0.25f - cho phép năng lượng thấp hơn trước khi đói
+        [SerializeField] private float starvationDamageRate = 6f; // Giảm từ 8f xuống 6f - chết đói chậm hơn một chút
 
         [Header("Neural Network")]
         private NEATNetwork brain;
@@ -100,6 +105,17 @@ namespace Verrarium.Creature
             currentHealth = genome.health;
             maturity = 0f;
             age = 0f;
+            
+            // Thêm WorldBoundaryEnforcer nếu chưa có và world border được bật
+            if (SimulationSupervisor.Instance != null && 
+                SimulationSupervisor.Instance.EnableWorldBorder &&
+                GetComponent<WorldBoundaryEnforcer>() == null)
+            {
+                gameObject.AddComponent<WorldBoundaryEnforcer>();
+            }
+            
+            // Đăng ký với BrainUpdateManager nếu cần
+            // BrainUpdateManager.Instance?.RegisterCreature(this);
         }
 
         /// <summary>
@@ -164,17 +180,36 @@ namespace Verrarium.Creature
             spriteRenderer.sprite = Sprite.Create(texture, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f));
         }
 
+        private bool brainUpdateEnabled = true; // Cho phép brain update mỗi frame (có thể tắt để dùng time-slicing)
+        private int brainUpdateFrameSkip = 0; // Skip brain update mỗi N frames
+
         private void FixedUpdate()
         {
+            // Không cập nhật nếu đang pause
+            if (isPaused) return;
+
             if (genome.size == 0) return; // Chưa được khởi tạo
 
             age += Time.fixedDeltaTime;
 
-            // Sense - Thu thập thông tin cảm giác (tạm thời random, sẽ thay bằng Neural Network)
+            // Sense - Thu thập thông tin cảm giác
             Sense();
 
-            // Think - Tính toán Neural Network (tạm thời random)
+            // Think - Tính toán Neural Network (có thể skip để tối ưu)
+            if (brainUpdateEnabled)
+            {
+                brainUpdateFrameSkip++;
+                // Update brain mỗi 2-3 frames để giảm tải
+                if (brainUpdateFrameSkip >= 2)
+                {
             Think();
+                    brainUpdateFrameSkip = 0;
+                }
+                else
+                {
+                    // Sử dụng outputs cũ
+                }
+            }
 
             // Act - Thực thi hành động
             Act();
@@ -190,6 +225,16 @@ namespace Verrarium.Creature
         }
 
         /// <summary>
+        /// Update chỉ brain (dùng cho time-slicing)
+        /// </summary>
+        public void UpdateBrainOnly()
+        {
+            if (genome.size == 0) return;
+            Sense();
+            Think();
+        }
+
+        /// <summary>
         /// Thu thập thông tin cảm giác - tất cả các đầu vào theo Bảng 2
         /// </summary>
         private void Sense()
@@ -197,7 +242,7 @@ namespace Verrarium.Creature
             if (SimulationSupervisor.Instance == null) return;
 
             Vector2 position = transform.position;
-            Vector2 forward = transform.up;
+            Vector2 forward = transform.right; // Front là bên phải của sprite
 
             // Tìm các đối tượng gần nhất
             closestPlant = SimulationSupervisor.Instance.FindClosestResource(position, ResourceType.Plant, genome.visionRange);
@@ -314,7 +359,7 @@ namespace Verrarium.Creature
             // Di chuyển
             if (accelerateOutput > 0.1f)
             {
-                Vector2 force = transform.up * accelerateOutput * genome.speed * 5f;
+                Vector2 force = transform.right * accelerateOutput * genome.speed * 2.5f; // Front là bên phải - di chuyển chậm hơn 50%
                 rb.AddForce(force);
                 energy -= movementEnergyCost * Time.fixedDeltaTime;
             }
@@ -387,8 +432,11 @@ namespace Verrarium.Creature
 
             if (targetResource == null) return;
 
-            float distance = Vector2.Distance(transform.position, targetResource.transform.position);
-            if (distance > 1.5f) return; // Quá xa
+            // Kiểm tra xem thức ăn có nằm ở phía miệng không
+            if (!IsFoodInMouthRange(targetResource))
+            {
+                return; // Thức ăn không nằm ở phía miệng
+            }
 
             // Kiểm tra diet
             bool canEat = false;
@@ -424,8 +472,8 @@ namespace Verrarium.Creature
             float growthRate = Time.fixedDeltaTime / genome.growthDuration;
             maturity = Mathf.Min(1f, maturity + growthRate);
             
-            // Tiêu thụ năng lượng
-            float growthCost = 2f * Time.fixedDeltaTime;
+            // Tiêu thụ năng lượng (giảm cost để dễ tăng trưởng hơn)
+            float growthCost = 1.5f * Time.fixedDeltaTime; // Giảm từ 2f xuống 1.5f
             energy -= growthCost;
 
             // Cập nhật kích thước
@@ -440,10 +488,35 @@ namespace Verrarium.Creature
             if (Time.time - lastReproduceTime < genome.reproCooldown) return; // Kiểm tra cooldown từ gen
             if (age < genome.reproAgeThreshold) return;
             if (energy < genome.reproEnergyThreshold) return;
-            if (maturity < 0.8f) return;
+            if (maturity < 0.85f) return; // Tăng từ 0.75f lên 0.85f - phải trưởng thành hơn mới sinh sản
+
+            // Kiểm tra population limit
+            if (SimulationSupervisor.Instance != null)
+            {
+                int currentPopulation = SimulationSupervisor.Instance.CurrentPopulation;
+                int maxPopulation = SimulationSupervisor.Instance.GetMaxPopulationSize();
+                
+                // Nếu đã đạt max population, không cho sinh sản
+                if (currentPopulation >= maxPopulation) return;
+                
+                // Density-based reproduction penalty: khó sinh sản hơn khi population cao
+                int targetPopulation = SimulationSupervisor.Instance.GetTargetPopulationSize();
+                float populationRatio = (float)currentPopulation / maxPopulation;
+                
+                // Nếu population > 80% max, giảm 50% cơ hội sinh sản
+                if (populationRatio > 0.8f)
+                {
+                    if (Random.value > 0.5f) return; // 50% chance bị từ chối
+                }
+                // Nếu population > 60% max, giảm 25% cơ hội sinh sản
+                else if (populationRatio > 0.6f)
+                {
+                    if (Random.value > 0.75f) return; // 25% chance bị từ chối
+                }
+            }
 
             // Tiêu thụ năng lượng để sinh sản
-            float reproductionCost = genome.reproEnergyThreshold * 0.5f;
+            float reproductionCost = genome.reproEnergyThreshold * 0.6f; // Tăng từ 0.5f lên 0.6f - tốn nhiều năng lượng hơn
             energy -= reproductionCost;
             lastReproduceTime = Time.time;
 
@@ -453,6 +526,47 @@ namespace Verrarium.Creature
                 Vector2 eggPosition = (Vector2)transform.position + Random.insideUnitCircle * 1f;
                 SimulationSupervisor.Instance.OnCreatureReproduction(this, eggPosition, genome);
             }
+        }
+
+        /// <summary>
+        /// Kiểm tra xem thức ăn có nằm ở phía miệng không
+        /// </summary>
+        private bool IsFoodInMouthRange(Resource food)
+        {
+            if (food == null) return false;
+
+            Vector2 creaturePosition = transform.position;
+            Vector2 foodPosition = food.transform.position;
+            
+            // Tính size hiện tại (có thể lớn hơn khi trưởng thành)
+            float currentSize = genome.size * (1f + maturity * 0.5f);
+            
+            // Tính vị trí miệng (luôn ở phía trước, không thay đổi angle)
+            Vector2 forward = transform.right; // Front là bên phải của sprite
+            Vector2 mouthPosition = creaturePosition + forward * (currentSize * 0.8f); // Miệng ở gần rìa cơ thể phía trước
+
+            // Mouth range scale theo size (creature lớn hơn = miệng xa hơn)
+            float effectiveMouthRange = genome.mouthRange * currentSize;
+
+            // Khoảng cách từ miệng đến thức ăn
+            float distanceToFood = Vector2.Distance(mouthPosition, foodPosition);
+            if (distanceToFood > effectiveMouthRange)
+            {
+                return false; // Quá xa
+            }
+
+            // Tính hướng từ miệng đến thức ăn
+            Vector2 directionToFood = (foodPosition - mouthPosition).normalized;
+            
+            // Hướng của miệng luôn là forward (phía trước)
+            Vector2 mouthForward = forward;
+            
+            // Tính góc giữa hướng miệng và hướng đến thức ăn
+            float angleToFood = Vector2.SignedAngle(mouthForward, directionToFood);
+            float halfMouthAngleRange = genome.mouthAngleRange / 2f;
+
+            // Kiểm tra xem thức ăn có nằm trong góc mở của miệng không
+            return Mathf.Abs(angleToFood) <= halfMouthAngleRange;
         }
 
         /// <summary>
@@ -480,12 +594,38 @@ namespace Verrarium.Creature
             float metabolicCost = baseMetabolicRate * Time.fixedDeltaTime;
             energy -= metabolicCost;
 
-            // Mất máu nếu hết năng lượng
-            if (energy <= 0f)
+            // Giới hạn energy không âm
+            if (energy < 0f)
             {
-                currentHealth -= 5f * Time.fixedDeltaTime;
                 energy = 0f;
             }
+
+            // Tính toán sát thương đói (starvation damage)
+            UpdateStarvation();
+        }
+
+        /// <summary>
+        /// Cập nhật sát thương đói - sinh vật chết nhanh hơn khi thiếu năng lượng
+        /// </summary>
+        private void UpdateStarvation()
+        {
+            if (maxEnergy <= 0f) return;
+
+            float energyRatio = energy / maxEnergy;
+            
+            // Chỉ bị đói khi energy dưới ngưỡng
+            if (energyRatio < starvationThreshold)
+            {
+                // Tính damage dựa trên mức độ đói
+                // Khi energy = 0: damage = starvationDamageRate
+                // Khi energy = starvationThreshold: damage = 0
+                // Damage tăng tuyến tính khi energy giảm
+                float starvationLevel = 1f - (energyRatio / starvationThreshold); // 0 khi ở threshold, 1 khi energy = 0
+                float damage = starvationDamageRate * starvationLevel * Time.fixedDeltaTime;
+                
+                currentHealth -= damage;
+            }
+            // Nếu có đủ năng lượng (>= threshold), không bị damage từ đói
         }
 
         /// <summary>
@@ -532,6 +672,8 @@ namespace Verrarium.Creature
         private void OnDestroy()
         {
             CreatureLineageRegistry.Unbind(this);
+            // Hủy đăng ký với BrainUpdateManager
+            // BrainUpdateManager.Instance?.UnregisterCreature(this);
         }
 
         /// <summary>
@@ -559,6 +701,26 @@ namespace Verrarium.Creature
         public float HealthRatio => genome.health > 0 ? currentHealth / genome.health : 0f;
         public void SetLineageRecord(CreatureLineageRecord record) => lineageRecord = record;
         public CreatureLineageRecord GetLineageRecord() => lineageRecord;
+
+        /// <summary>
+        /// Set pause state cho creature
+        /// </summary>
+        public void SetPaused(bool paused)
+        {
+            isPaused = paused;
+        }
+
+        /// <summary>
+        /// Set state từ save data (dùng cho load game)
+        /// </summary>
+        public void SetStateFromSave(float energy, float maxEnergy, float health, float maturity, float age)
+        {
+            this.energy = energy;
+            this.maxEnergy = maxEnergy;
+            this.currentHealth = health;
+            this.maturity = maturity;
+            this.age = age;
+        }
     }
 }
 

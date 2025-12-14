@@ -314,6 +314,45 @@ namespace Verrarium.Evolution
         {
             return new List<Connection>(connections);
         }
+
+        /// <summary>
+        /// Tạo NEATNetwork từ save data (dùng cho load game)
+        /// Constructor riêng để tạo từ save data
+        /// </summary>
+        private NEATNetwork(int inputCount, int outputCount, bool fromSaveData)
+        {
+            this.inputCount = inputCount;
+            this.outputCount = outputCount;
+            this.innovationTracker = InnovationTracker.Instance;
+            
+            neurons = new List<Neuron>();
+            connections = new List<Connection>();
+            connectionsByToNeuron = new Dictionary<int, List<Connection>>();
+        }
+
+        /// <summary>
+        /// Tạo NEATNetwork từ save data (dùng cho load game)
+        /// </summary>
+        public static NEATNetwork CreateFromSaveData(int inputCount, int outputCount, 
+            List<Neuron> savedNeurons, List<Connection> savedConnections)
+        {
+            NEATNetwork network = new NEATNetwork(inputCount, outputCount, true);
+
+            // Thêm neurons từ save data
+            foreach (var neuron in savedNeurons)
+            {
+                network.neurons.Add(new Neuron(neuron));
+            }
+
+            // Thêm connections từ save data
+            foreach (var connection in savedConnections)
+            {
+                network.AddConnection(connection.fromNeuronId, connection.toNeuronId, 
+                    connection.weight, connection.innovationNumber, connection.enabled);
+            }
+
+            return network;
+        }
     }
 }
 

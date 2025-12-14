@@ -14,6 +14,7 @@ namespace Verrarium.UI
         [SerializeField] private GameObject controlPanel;
         [SerializeField] private Button toggleButton;
         [SerializeField] private RectTransform toggleArrow; // Arrow RectTransform để xoay
+        [SerializeField] private Image panelBackground; // Background Image của panel chính
         private TextMeshProUGUI toggleArrowText;
 
         [Header("Population Controls")]
@@ -34,15 +35,8 @@ namespace Verrarium.UI
         [SerializeField] private Slider worldSizeYSlider;
         [SerializeField] private TextMeshProUGUI worldSizeYValueText;
 
-        [Header("Advanced Controls")]
-        [SerializeField] private GameObject advancedSection;
-        [SerializeField] private Button advancedToggleButton;
-        [SerializeField] private Slider baseMetabolicRateSlider;
-        [SerializeField] private TextMeshProUGUI baseMetabolicRateValueText;
-
         private SimulationSupervisor supervisor;
         private bool isExpanded = false;
-        private bool advancedExpanded = false;
 
         private void Start()
         {
@@ -52,6 +46,12 @@ namespace Verrarium.UI
             {
                 Debug.LogWarning("SimulationSupervisor not found!");
                 return;
+            }
+
+            // Tự động tìm panel background nếu chưa được gán
+            if (panelBackground == null)
+            {
+                panelBackground = GetComponent<Image>();
             }
 
             SetupControls();
@@ -115,14 +115,6 @@ namespace Verrarium.UI
                 worldSizeYSlider.maxValue = 50f;
                 worldSizeYSlider.onValueChanged.AddListener(OnWorldSizeYChanged);
             }
-
-            // Base Metabolic Rate
-            if (baseMetabolicRateSlider != null)
-            {
-                baseMetabolicRateSlider.minValue = 0.1f;
-                baseMetabolicRateSlider.maxValue = 5f;
-                baseMetabolicRateSlider.onValueChanged.AddListener(OnBaseMetabolicRateChanged);
-            }
         }
 
         /// <summary>
@@ -132,9 +124,6 @@ namespace Verrarium.UI
         {
             if (toggleButton != null)
                 toggleButton.onClick.AddListener(TogglePanel);
-
-            if (advancedToggleButton != null)
-                advancedToggleButton.onClick.AddListener(ToggleAdvanced);
         }
 
         /// <summary>
@@ -190,9 +179,6 @@ namespace Verrarium.UI
             
             if (worldSizeYSlider != null && worldSizeYValueText != null)
                 worldSizeYValueText.text = worldSizeYSlider.value.ToString("F1");
-            
-            if (baseMetabolicRateSlider != null && baseMetabolicRateValueText != null)
-                baseMetabolicRateValueText.text = baseMetabolicRateSlider.value.ToString("F2");
         }
 
         private void OnEnable()
@@ -222,6 +208,14 @@ namespace Verrarium.UI
             if (controlPanel != null)
                 controlPanel.SetActive(isExpanded);
 
+            // Thay đổi độ trong suốt của background dựa trên trạng thái
+            if (panelBackground != null)
+            {
+                Color bgColor = panelBackground.color;
+                bgColor.a = expanded ? 0.9f : 0f; // Trong suốt khi đóng, đục khi mở
+                panelBackground.color = bgColor;
+            }
+
             bool hasTextArrow = TryCacheToggleArrowText();
 
             if (toggleArrow != null && !hasTextArrow)
@@ -229,16 +223,6 @@ namespace Verrarium.UI
 
             if (toggleArrowText != null)
                 toggleArrowText.text = isExpanded ? "^" : "v";
-        }
-
-        /// <summary>
-        /// Toggle advanced section
-        /// </summary>
-        private void ToggleAdvanced()
-        {
-            advancedExpanded = !advancedExpanded;
-            if (advancedSection != null)
-                advancedSection.SetActive(advancedExpanded);
         }
 
         private bool TryCacheToggleArrowText()
@@ -315,16 +299,6 @@ namespace Verrarium.UI
             }
             if (worldSizeYValueText != null)
                 worldSizeYValueText.text = value.ToString("F1");
-        }
-
-        private void OnBaseMetabolicRateChanged(float value)
-        {
-            if (supervisor != null)
-            {
-                supervisor.SetBaseMetabolicRate(value);
-            }
-            if (baseMetabolicRateValueText != null)
-                baseMetabolicRateValueText.text = value.ToString("F2");
         }
 
         /// <summary>

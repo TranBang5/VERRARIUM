@@ -13,6 +13,9 @@ namespace Verrarium.Data
         public float size;                    // Bán kính cơ bản của sinh vật
         public Color color;                   // Màu sắc nhận diện
         public float speed;                   // Hệ số nhân cho lực đẩy
+        public float mouthAngle;              // Góc của miệng so với hướng forward (độ) - 0 = phía trước, 90 = bên phải, -90 = bên trái
+        public float mouthRange;              // Tầm với của miệng (khoảng cách tối đa có thể ăn)
+        public float mouthAngleRange;         // Góc mở của miệng (độ) - phạm vi góc có thể ăn
 
         [Header("Metabolic Traits")]
         public float diet;                    // [0.0, 1.0] - 0 = ăn thực vật, 1 = ăn thịt, 0.5 = ăn tạp
@@ -46,13 +49,16 @@ namespace Verrarium.Data
                 size = 0.5f,
                 color = new Color(Random.Range(0.3f, 1f), Random.Range(0.3f, 1f), Random.Range(0.3f, 1f)),
                 speed = 1f,
+                mouthAngle = 0f, // Mặc định miệng ở phía trước
+                mouthRange = 1.5f, // Tầm với miệng
+                mouthAngleRange = 60f, // Góc mở 60 độ mỗi bên (tổng 120 độ)
                 diet = Random.Range(0f, 1f),
-                health = 100f,
-                growthDuration = 20f,
-                growthEnergyThreshold = 50f,
-                reproAgeThreshold = 10f,
-                reproEnergyThreshold = 60f,
-                reproCooldown = 10f,
+                health = 450f, // Tăng từ 250f lên 450f - sống lâu hơn rất nhiều
+                growthDuration = 30f, // Tăng từ 12f lên 30f - trưởng thành chậm hơn, sống lâu hơn
+                growthEnergyThreshold = 40f, // Giảm từ 50f xuống 40f - dễ tăng trưởng hơn
+                reproAgeThreshold = 20f, // Tăng từ 15s lên 20s - phải già hơn mới sinh sản
+                reproEnergyThreshold = 75f, // Tăng từ 60f lên 75f - cần nhiều năng lượng hơn
+                reproCooldown = 40f, // Tăng từ 20s lên 40s - chờ lâu hơn giữa các lần đẻ trứng
                 visionRange = 5f,
                 pheromoneType = (PheromoneType)Random.Range(0, 3),
                 mutationRate = 2f
@@ -73,6 +79,17 @@ namespace Verrarium.Data
             // Đột biến speed
             if (Random.value < 0.3f)
                 child.speed = Mathf.Max(0.1f, child.speed + Random.Range(-mutationStrength * 0.5f, mutationStrength * 0.5f));
+
+            // Mouth angle không đột biến - luôn ở phía trước (0 độ)
+            // child.mouthAngle luôn = 0f
+
+            // Đột biến mouth range (scale theo size)
+            if (Random.value < 0.2f)
+                child.mouthRange = Mathf.Max(0.5f, child.mouthRange + Random.Range(-mutationStrength * 0.5f, mutationStrength * 0.5f));
+
+            // Đột biến mouth angle range
+            if (Random.value < 0.15f)
+                child.mouthAngleRange = Mathf.Clamp(child.mouthAngleRange + Random.Range(-mutationStrength * 20f, mutationStrength * 20f), 30f, 180f);
 
             // Đột biến diet
             if (Random.value < 0.2f)

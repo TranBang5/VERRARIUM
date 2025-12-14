@@ -131,6 +131,15 @@ namespace Verrarium.UI
                 return;
             }
 
+            // Đóng inspector khi click phải chuột
+            if (IsMouseButtonDown(1)) // Right mouse button
+            {
+                ClearSelection();
+                selectionChangedThisFrame = false;
+                return;
+            }
+
+            // Đóng inspector khi click trái vào môi trường hoặc sinh vật khác
             if (!selectionChangedThisFrame && IsMouseButtonDown(0))
             {
                 if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
