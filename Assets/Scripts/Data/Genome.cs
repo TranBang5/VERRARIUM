@@ -35,6 +35,7 @@ namespace Verrarium.Data
 
         [Header("Behavioral Traits")]
         public PheromoneType pheromoneType;  // Loại pheromone phát ra
+        public float pheromoneCooldown;      // Thời gian nghỉ giữa các lần nhả pheromone (giây)
 
         [Header("Evolution Traits")]
         public float mutationRate;           // Tỷ lệ đột biến trung bình (lambda cho Poisson)
@@ -61,6 +62,7 @@ namespace Verrarium.Data
                 reproCooldown = 40f, // Tăng từ 20s lên 40s - chờ lâu hơn giữa các lần đẻ trứng
                 visionRange = 5f,
                 pheromoneType = (PheromoneType)Random.Range(0, 3),
+                pheromoneCooldown = Random.Range(0.5f, 3f),
                 mutationRate = 2f
             };
         }
@@ -126,6 +128,10 @@ namespace Verrarium.Data
             // Đột biến pheromoneType
             if (Random.value < 0.1f)
                 child.pheromoneType = (PheromoneType)Random.Range(0, 3);
+
+            // Đột biến pheromoneCooldown
+            if (Random.value < 0.2f)
+                child.pheromoneCooldown = Mathf.Max(0.1f, child.pheromoneCooldown + Random.Range(-mutationStrength * 2f, mutationStrength * 2f));
 
             // Đột biến mutationRate (meta-evolution)
             if (Random.value < 0.1f)

@@ -1,0 +1,2 @@
+SimulationTime,CurrentPopulation,TotalBorn,TotalDied,NetGrowth,SurvivalRate,TargetPopulation,PopulationPercentage,BirthRatePerMinute,DeathRatePerMinute
+6000.05029296875,162,5899,5737,162,2.75,200,81.00,58.99,57.37

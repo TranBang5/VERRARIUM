@@ -421,6 +421,12 @@ namespace Verrarium.UI
                 CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Lineage ID", $"#{lineage.LineageId:0000}");
                 CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Genome Code", lineage.GenomeCode);
                 CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Parent Code", lineage.ParentGenomeCode);
+                
+                // Hiển thị Species Code nếu có
+                if (lineage.SpeciesId >= 0)
+                {
+                    CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Species", lineage.SpeciesCode);
+                }
             }
             
             // Force rebuild layout
@@ -567,7 +573,7 @@ namespace Verrarium.UI
             // If the parent (panel) has 0 width, the children (tabs -> scrollviews) will have 0 width.
             // But here anchorMin/Max should handle it. 
             // Wait, if the PopupPanel has 0 width, then this child has 0 width.
-            
+
             VerticalLayoutGroup layout = obj.AddComponent<VerticalLayoutGroup>();
             layout.padding = new RectOffset(18, 18, 18, 18);
             layout.spacing = 12f;

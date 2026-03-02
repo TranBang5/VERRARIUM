@@ -16,8 +16,12 @@ namespace Verrarium.Data
         public string ParentGenomeCode { get; }
         public Genome GenomeSnapshot { get; }
         public CreatureLineageRecord Parent { get; }
+        
+        // Speciation integration
+        public int SpeciesId { get; }
+        public string SpeciesCode { get; } // Dễ đọc: "SP-001", "SP-002", ...
 
-        internal CreatureLineageRecord(int id, Genome genome, CreatureLineageRecord parent, string genomeCode)
+        internal CreatureLineageRecord(int id, Genome genome, CreatureLineageRecord parent, string genomeCode, int speciesId = -1)
         {
             LineageId = id;
             GenomeSnapshot = genome;
@@ -25,6 +29,8 @@ namespace Verrarium.Data
             GenerationIndex = parent != null ? parent.GenerationIndex + 1 : 0;
             ParentGenomeCode = parent != null ? parent.GenomeCode : "ROOT";
             GenomeCode = genomeCode;
+            SpeciesId = speciesId;
+            SpeciesCode = speciesId >= 0 ? $"SP-{speciesId:000}" : "UNKNOWN";
         }
     }
 
@@ -37,13 +43,24 @@ namespace Verrarium.Data
         private static readonly Dictionary<int, CreatureLineageRecord> LineageLookup = new();
         private static int nextLineageId = 1;
 
-        public static CreatureLineageRecord CreateRecord(Genome genome, CreatureLineageRecord parent)
+        /// <summary>
+        /// Tạo lineage record với species ID (nếu có)
+        /// </summary>
+        public static CreatureLineageRecord CreateRecord(Genome genome, CreatureLineageRecord parent, int speciesId = -1)
         {
             int id = nextLineageId++;
-            string genomeCode = ComputeGenomeCode(genome, id);
-            var record = new CreatureLineageRecord(id, genome, parent, genomeCode);
+            string genomeCode = ComputeGenomeCode(genome, id, speciesId);
+            var record = new CreatureLineageRecord(id, genome, parent, genomeCode, speciesId);
             LineageLookup[id] = record;
             return record;
+        }
+        
+        /// <summary>
+        /// Tạo lineage record không có species (backward compatibility)
+        /// </summary>
+        public static CreatureLineageRecord CreateRecord(Genome genome, CreatureLineageRecord parent)
+        {
+            return CreateRecord(genome, parent, -1);
         }
 
         public static void Bind(UnityEngine.Object owner, CreatureLineageRecord record)
@@ -71,9 +88,10 @@ namespace Verrarium.Data
             return record;
         }
 
-        private static string ComputeGenomeCode(Genome genome, int lineageId)
+        private static string ComputeGenomeCode(Genome genome, int lineageId, int speciesId = -1)
         {
             // Serialize genome fields thành byte buffer rồi hash SHA1 -> 8 ký tự hex.
+            // Bao gồm cả speciesId để genome code phản ánh species
             var buffer = new List<byte>(64);
 
             void AddFloat(float value)
@@ -98,6 +116,7 @@ namespace Verrarium.Data
             AddFloat(genome.color.a);
             AddFloat((float)genome.pheromoneType);
             AddFloat(lineageId);
+            AddFloat(speciesId); // Thêm speciesId vào hash
 
             using SHA1 sha = SHA1.Create();
             byte[] hash = sha.ComputeHash(buffer.ToArray());
@@ -109,8 +128,38 @@ namespace Verrarium.Data
 
             return sb.ToString();
         }
+        
+        /// <summary>
+        /// Lấy tất cả lineage records thuộc một species
+        /// </summary>
+        public static List<CreatureLineageRecord> GetRecordsBySpecies(int speciesId)
+        {
+            var result = new List<CreatureLineageRecord>();
+            foreach (var record in LineageLookup.Values)
+            {
+                if (record.SpeciesId == speciesId)
+                {
+                    result.Add(record);
+                }
+            }
+            return result;
+        }
+        
+        /// <summary>
+        /// Reset registry (dùng khi bắt đầu simulation mới)
+        /// </summary>
+        public static void Reset()
+        {
+            InstanceLookup.Clear();
+            LineageLookup.Clear();
+            nextLineageId = 1;
+        }
     }
 }
+
+
+
+
 
 
 

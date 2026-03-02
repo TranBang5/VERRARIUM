@@ -14,7 +14,8 @@ namespace Verrarium.DOTS.Evolution
     {
         private Dictionary<int, Species> speciesMap;
         private int nextSpeciesId = 1;
-        private const float COMPATIBILITY_THRESHOLD = 3.0f; // Ngưỡng tương thích để phân loài
+        // Ngưỡng tương thích để phân loài (giảm để dễ tách loài hơn cho mục đích nghiên cứu)
+        private const float COMPATIBILITY_THRESHOLD = 1.5f;
         private const float C1 = 1.0f; // Hệ số cho excess genes
         private const float C2 = 1.0f; // Hệ số cho disjoint genes
         private const float C3 = 0.4f; // Hệ số cho weight differences

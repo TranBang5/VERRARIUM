@@ -1,0 +1,455 @@
+{
+    "version": "1.0",
+    "saveName": "Test Save",
+    "saveTime": "2025-12-26T10:30:45.1234567",
+    "simulationTime": 125.5,
+    "totalCreaturesBorn": 45,
+    "totalCreaturesDied": 12,
+    "currentPopulation": 33,
+    "worldSize": {
+        "x": 100.0,
+        "y": 50.0
+    },
+    "enableWorldBorder": true,
+    "useHexGrid": false,
+    "targetPopulationSize": 50,
+    "maxPopulationSize": 100,
+    "resourceSpawnInterval": 5.0,
+    "plantsPerSpawn": 3,
+    "maxResources": 200,
+    "resourceDecayTime": 60.0,
+    "resourceSpawnPopulationThreshold": 0.8,
+    "creatures": [
+        {
+            "genome": {
+                "size": 0.65,
+                "color": {
+                    "r": 0.8,
+                    "g": 0.5,
+                    "b": 0.2,
+                    "a": 1.0
+                },
+                "speed": 1.2,
+                "mouthAngle": 0.0,
+                "mouthRange": 1.8,
+                "mouthAngleRange": 75.0,
+                "diet": 0.3,
+                "health": 450.0,
+                "growthDuration": 30.0,
+                "growthEnergyThreshold": 40.0,
+                "reproAgeThreshold": 20.0,
+                "reproEnergyThreshold": 75.0,
+                "reproCooldown": 40.0,
+                "visionRange": 5.5,
+                "pheromoneType": 1,
+                "mutationRate": 2.1
+            },
+            "brain": {
+                "inputCount": 8,
+                "outputCount": 4,
+                "neurons": [
+                    {
+                        "id": 0,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 1,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 2,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 3,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 4,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 5,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 6,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 7,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 8,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": -0.15
+                    },
+                    {
+                        "id": 9,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": 0.1
+                    },
+                    {
+                        "id": 10,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": -0.05
+                    },
+                    {
+                        "id": 11,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 12,
+                        "type": 1,
+                        "activationFunction": 0,
+                        "bias": 0.25
+                    },
+                    {
+                        "id": 13,
+                        "type": 1,
+                        "activationFunction": 0,
+                        "bias": -0.1
+                    }
+                ],
+                "connections": [
+                    {
+                        "innovationNumber": 1,
+                        "fromNeuronId": 0,
+                        "toNeuronId": 8,
+                        "weight": 0.523,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 2,
+                        "fromNeuronId": 1,
+                        "toNeuronId": 8,
+                        "weight": -0.312,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 3,
+                        "fromNeuronId": 2,
+                        "toNeuronId": 9,
+                        "weight": 0.789,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 4,
+                        "fromNeuronId": 3,
+                        "toNeuronId": 9,
+                        "weight": -0.456,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 5,
+                        "fromNeuronId": 4,
+                        "toNeuronId": 10,
+                        "weight": 0.234,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 6,
+                        "fromNeuronId": 5,
+                        "toNeuronId": 10,
+                        "weight": 0.678,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 7,
+                        "fromNeuronId": 6,
+                        "toNeuronId": 11,
+                        "weight": -0.123,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 8,
+                        "fromNeuronId": 7,
+                        "toNeuronId": 11,
+                        "weight": 0.567,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 9,
+                        "fromNeuronId": 0,
+                        "toNeuronId": 12,
+                        "weight": 0.345,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 10,
+                        "fromNeuronId": 12,
+                        "toNeuronId": 8,
+                        "weight": 0.234,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 11,
+                        "fromNeuronId": 1,
+                        "toNeuronId": 13,
+                        "weight": -0.456,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 12,
+                        "fromNeuronId": 13,
+                        "toNeuronId": 9,
+                        "weight": 0.123,
+                        "enabled": true
+                    }
+                ]
+            },
+            "position": {
+                "x": 25.5,
+                "y": 15.3
+            },
+            "rotation": 45.2,
+            "energy": 85.5,
+            "maxEnergy": 100.0,
+            "health": 420.0,
+            "maxHealth": 450.0,
+            "maturity": 0.92,
+            "age": 35.7,
+            "lastEatTime": 120.3,
+            "lastReproduceTime": 95.2,
+            "lineageId": "550e8400-e29b-41d4-a716-446655440000",
+            "generationIndex": 3
+        },
+        {
+            "genome": {
+                "size": 0.58,
+                "color": {
+                    "r": 0.3,
+                    "g": 0.7,
+                    "b": 0.9,
+                    "a": 1.0
+                },
+                "speed": 0.95,
+                "mouthAngle": 0.0,
+                "mouthRange": 1.6,
+                "mouthAngleRange": 65.0,
+                "diet": 0.8,
+                "health": 480.0,
+                "growthDuration": 28.0,
+                "growthEnergyThreshold": 42.0,
+                "reproAgeThreshold": 22.0,
+                "reproEnergyThreshold": 78.0,
+                "reproCooldown": 42.0,
+                "visionRange": 6.0,
+                "pheromoneType": 2,
+                "mutationRate": 1.9
+            },
+            "brain": {
+                "inputCount": 8,
+                "outputCount": 4,
+                "neurons": [
+                    {
+                        "id": 0,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 1,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 2,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 3,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 4,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 5,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 6,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 7,
+                        "type": 0,
+                        "activationFunction": 0,
+                        "bias": 0.0
+                    },
+                    {
+                        "id": 8,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": 0.05
+                    },
+                    {
+                        "id": 9,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": -0.2
+                    },
+                    {
+                        "id": 10,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": 0.15
+                    },
+                    {
+                        "id": 11,
+                        "type": 2,
+                        "activationFunction": 0,
+                        "bias": -0.1
+                    }
+                ],
+                "connections": [
+                    {
+                        "innovationNumber": 1,
+                        "fromNeuronId": 0,
+                        "toNeuronId": 8,
+                        "weight": 0.456,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 2,
+                        "fromNeuronId": 1,
+                        "toNeuronId": 8,
+                        "weight": 0.234,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 3,
+                        "fromNeuronId": 2,
+                        "toNeuronId": 9,
+                        "weight": -0.567,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 4,
+                        "fromNeuronId": 3,
+                        "toNeuronId": 9,
+                        "weight": 0.123,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 5,
+                        "fromNeuronId": 4,
+                        "toNeuronId": 10,
+                        "weight": 0.789,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 6,
+                        "fromNeuronId": 5,
+                        "toNeuronId": 10,
+                        "weight": -0.345,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 7,
+                        "fromNeuronId": 6,
+                        "toNeuronId": 11,
+                        "weight": 0.678,
+                        "enabled": true
+                    },
+                    {
+                        "innovationNumber": 8,
+                        "fromNeuronId": 7,
+                        "toNeuronId": 11,
+                        "weight": -0.234,
+                        "enabled": true
+                    }
+                ]
+            },
+            "position": {
+                "x": 67.8,
+                "y": 32.1
+            },
+            "rotation": 120.5,
+            "energy": 72.3,
+            "maxEnergy": 100.0,
+            "health": 450.0,
+            "maxHealth": 480.0,
+            "maturity": 0.88,
+            "age": 28.4,
+            "lastEatTime": 115.7,
+            "lastReproduceTime": 0.0,
+            "lineageId": "550e8400-e29b-41d4-a716-446655440001",
+            "generationIndex": 2
+        }
+    ],
+    "resources": [
+        {
+            "position": {
+                "x": 10.5,
+                "y": 8.2
+            },
+            "energyValue": 25.0,
+            "resourceType": 0,
+            "spawnTime": 100.0
+        },
+        {
+            "position": {
+                "x": 45.3,
+                "y": 20.7
+            },
+            "energyValue": 30.0,
+            "resourceType": 0,
+            "spawnTime": 105.5
+        },
+        {
+            "position": {
+                "x": 78.9,
+                "y": 35.1
+            },
+            "energyValue": 20.0,
+            "resourceType": 0,
+            "spawnTime": 110.2
+        },
+        {
+            "position": {
+                "x": 15.2,
+                "y": 42.8
+            },
+            "energyValue": 35.0,
+            "resourceType": 1,
+            "spawnTime": 98.3
+        }
+    ]
+}
+

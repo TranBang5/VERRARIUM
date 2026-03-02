@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Verrarium.Core;
 
 namespace Verrarium.World
 {
@@ -126,6 +127,51 @@ namespace Verrarium.World
         public List<HexCell> GetAllCells()
         {
             return new List<HexCell>(cells.Values);
+        }
+
+        /// <summary>
+        /// Thêm pheromone tại vị trí world
+        /// </summary>
+        public void AddPheromoneAtWorld(Vector2 worldPos, int type, float amount)
+        {
+            if (amount <= 0f) return;
+
+            HexCell cell = GetCellAtWorldPosition(worldPos);
+            if (cell == null) return;
+
+            cell.AddPheromone(type, amount);
+        }
+
+        /// <summary>
+        /// Lấy cường độ pheromone tại vị trí world
+        /// </summary>
+        public float GetPheromoneStrengthAtWorld(Vector2 worldPos, int type)
+        {
+            HexCell cell = GetCellAtWorldPosition(worldPos);
+            return cell != null ? cell.GetPheromone(type) : 0f;
+        }
+
+        /// <summary>
+        /// Decay pheromone trên toàn bộ hex grid
+        /// </summary>
+        public void DecayPheromones(float decayRate)
+        {
+            if (decayRate <= 0f || decayRate >= 1f) return;
+
+            foreach (var cell in cells.Values)
+            {
+                cell.DecayPheromones(decayRate);
+            }
+        }
+
+        private void Update()
+        {
+            if (SimulationSupervisor.Instance == null || !SimulationSupervisor.Instance.EnablePheromones)
+                return;
+
+            // Dùng decayRate cố định cho hex pheromones; có thể expose ra serialized nếu cần
+            const float decayRate = 0.98f;
+            DecayPheromones(decayRate);
         }
 
         /// <summary>

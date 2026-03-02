@@ -89,6 +89,17 @@ namespace Verrarium.Creature
             Destroy(gameObject);
         }
         
+        /// <summary>
+        /// Làm vỡ trứng do bị giẫm lên - trứng sẽ không thể nở
+        /// </summary>
+        public void BreakEgg()
+        {
+            if (isHatched) return; // Đã nở hoặc đã xử lý
+
+            isHatched = true;
+            Destroy(gameObject);
+        }
+        
         private void CreateSimpleEggSprite()
         {
             Texture2D texture = new Texture2D(32, 32);

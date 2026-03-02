@@ -16,6 +16,7 @@ namespace Verrarium.Save
         public string version = "1.0";
         public string saveName;
         public DateTime saveTime;
+        public DateTime simulationStartTime;
         public float simulationTime;
         
         // Statistics
@@ -64,6 +65,7 @@ namespace Verrarium.Save
         public float lastReproduceTime;
         public string lineageId;
         public int generationIndex;
+        public int speciesId = -1; // Species ID (-1 = chưa phân loại)
     }
 
     /// <summary>

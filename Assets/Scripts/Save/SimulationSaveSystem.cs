@@ -222,6 +222,7 @@ namespace Verrarium.Save
             {
                 saveName = saveName,
                 saveTime = DateTime.Now,
+                simulationStartTime = supervisor.SimulationStartTime,
                 simulationTime = supervisor.SimulationTime,
                 totalCreaturesBorn = supervisor.TotalBorn,
                 totalCreaturesDied = supervisor.TotalDied,
@@ -259,6 +260,7 @@ namespace Verrarium.Save
                 {
                     creatureData.lineageId = lineage.LineageId.ToString();
                     creatureData.generationIndex = lineage.GenerationIndex;
+                    creatureData.speciesId = lineage.SpeciesId;
                 }
 
                 saveData.creatures.Add(creatureData);
