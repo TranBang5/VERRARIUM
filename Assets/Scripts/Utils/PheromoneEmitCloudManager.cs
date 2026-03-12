@@ -35,11 +35,11 @@ namespace Verrarium.Utils
             }
         }
 
-        public void SpawnCloud(Vector2 position, PheromoneType type, float strength)
+        public void SpawnCloud(Vector2 position, PheromoneType type, float strength, float lifetimeSeconds)
         {
             PheromoneCloud cloud = GetFromPool();
             Color color = GetColorForType(type);
-            cloud.Initialize(position, color, strength, ReturnToPool);
+            cloud.Initialize(position, color, strength, ReturnToPool, lifetimeSeconds);
         }
 
         private PheromoneCloud GetFromPool()

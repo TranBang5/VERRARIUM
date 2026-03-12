@@ -69,9 +69,13 @@ namespace Verrarium.UI
             "Dist Meat",
             "Angle Meat",
             "Dist Creature",
-            "Angle Creature"
+            "Angle Creature",
+            "Closest Creature Gray",
+            "Phero Red",
+            "Phero Green",
+            "Phero Blue"
         };
-
+        
         private static readonly string[] OutputNeuronNames =
         {
             "Accelerate",
@@ -80,7 +84,8 @@ namespace Verrarium.UI
             "Growth",
             "Heal",
             "Attack",
-            "Eat"
+            "Eat",
+            "Pheromone"
         };
 
         private struct BrainNodeVisual
@@ -240,11 +245,51 @@ namespace Verrarium.UI
             if (width < 50f) width = 620f;
             float height = Mathf.Abs(brainGraphContainer.rect.height);
             if (height < 10f) height = 320f;
-
+            
+            // Tính "layer" logic cho các neuron để bố trí các hidden nodes theo cột
+            Dictionary<int, int> neuronLayers = ComputeNeuronLayers(brain);
+            
+            // Gom hidden neurons theo layer (bắt đầu từ 1, layer 0 dành cho input)
+            var hiddenByLayer = new SortedDictionary<int, List<Neuron>>();
+            foreach (Neuron neuron in hiddenNeurons)
+            {
+                int layer = 1;
+                if (neuronLayers != null && neuronLayers.TryGetValue(neuron.id, out int computedLayer))
+                {
+                    // Đảm bảo hidden luôn nằm sau input
+                    layer = Mathf.Max(1, computedLayer);
+                }
+                
+                if (!hiddenByLayer.TryGetValue(layer, out List<Neuron> list))
+                {
+                    list = new List<Neuron>();
+                    hiddenByLayer[layer] = list;
+                }
+                list.Add(neuron);
+            }
+            
+            // Tổng số cột = input (0) + số layer hidden + output (cuối)
+            int hiddenLayerCount = hiddenByLayer.Count;
+            int totalColumns = 2 + hiddenLayerCount;
+            
             var positions = new Dictionary<int, Vector2>();
-            PlaceNeuronColumn(inputNeurons, 0, width, height, positions);
-            PlaceNeuronColumn(hiddenNeurons, 1, width, height, positions);
-            PlaceNeuronColumn(outputNeurons, 2, width, height, positions);
+            
+            // Input ở cột 0
+            PlaceNeuronColumn(inputNeurons, 0, totalColumns, width, height, positions);
+            
+            // Hidden theo từng layer, phân bổ từ cột 1 trở đi
+            int hiddenColumnBase = 1;
+            int hiddenColumnIndex = hiddenColumnBase;
+            foreach (var kvp in hiddenByLayer)
+            {
+                List<Neuron> layerNeurons = kvp.Value;
+                PlaceNeuronColumn(layerNeurons, hiddenColumnIndex, totalColumns, width, height, positions);
+                hiddenColumnIndex++;
+            }
+            
+            // Output ở cột cuối
+            int outputColumnIndex = Mathf.Max(1, totalColumns - 1);
+            PlaceNeuronColumn(outputNeurons, outputColumnIndex, totalColumns, width, height, positions);
 
             foreach (Neuron neuron in neurons)
             {
@@ -346,17 +391,16 @@ namespace Verrarium.UI
             }
         }
 
-        private void PlaceNeuronColumn(IReadOnlyList<Neuron> neurons, int columnIndex, float width, float height, Dictionary<int, Vector2> positions)
+        private void PlaceNeuronColumn(IReadOnlyList<Neuron> neurons, int columnIndex, int totalColumns, float width, float height, Dictionary<int, Vector2> positions)
         {
             if (neurons == null || neurons.Count == 0)
                 return;
 
-            float[] xColumns = new[]
-            {
-                40f,
-                width * 0.5f,
-                Mathf.Max(width - 40f, 40f)
-            };
+            // Tính vị trí X cho cột dựa trên tổng số cột
+            float margin = 40f;
+            float innerWidth = Mathf.Max(width - margin * 2f, 40f);
+            float t = totalColumns <= 1 ? 0f : Mathf.Clamp01((float)columnIndex / (totalColumns - 1));
+            float x = margin + innerWidth * t;
 
             float verticalSpace = Mathf.Max(height - 40f, 40f);
             float spacing = neurons.Count > 1 ? verticalSpace / Mathf.Max(1, neurons.Count - 1) : 0f;
@@ -371,10 +415,77 @@ namespace Verrarium.UI
 
             for (int i = 0; i < neurons.Count; i++)
             {
-                float x = xColumns[Mathf.Clamp(columnIndex, 0, xColumns.Length - 1)];
                 float y = startOffset - spacing * i;
                 positions[neurons[i].id] = new Vector2(x, y);
             }
+        }
+        
+        /// <summary>
+        /// Tính "độ sâu" logic (layer) của từng neuron dựa trên đồ thị kết nối.
+        /// Input = layer 0, các neuron khác có layer = max(layer của các neuron nguồn) + 1.
+        /// Có xử lý vòng lặp (recurrent/cycle) để tránh đệ quy vô hạn.
+        /// </summary>
+        private static Dictionary<int, int> ComputeNeuronLayers(NEATNetwork brain)
+        {
+            if (brain == null)
+                return null;
+            
+            List<Neuron> neurons = brain.GetNeurons();
+            List<Connection> connections = brain.GetConnections();
+            var layerById = new Dictionary<int, int>();
+            var visiting = new HashSet<int>();
+            
+            // Input neurons luôn ở layer 0
+            foreach (Neuron neuron in neurons)
+            {
+                if (neuron.type == NeuronType.Input)
+                {
+                    layerById[neuron.id] = 0;
+                }
+            }
+            
+            int GetLayer(int neuronId)
+            {
+                if (layerById.TryGetValue(neuronId, out int cached))
+                    return cached;
+
+                // Nếu đang thăm lại chính neuron này trong chuỗi đệ quy => có vòng lặp
+                if (!visiting.Add(neuronId))
+                {
+                    // Đặt tạm layer = 1 (ngay sau input) để phá vòng
+                    const int fallbackLayer = 1;
+                    layerById[neuronId] = fallbackLayer;
+                    return fallbackLayer;
+                }
+                
+                // Tìm các kết nối đi vào neuron này
+                int maxPrevLayer = 0;
+                bool hasIncoming = false;
+                
+                foreach (Connection conn in connections)
+                {
+                    if (!conn.enabled || conn.toNeuronId != neuronId)
+                        continue;
+                    
+                    hasIncoming = true;
+                    int fromLayer = GetLayer(conn.fromNeuronId);
+                    if (fromLayer > maxPrevLayer)
+                        maxPrevLayer = fromLayer;
+                }
+                
+                int layer = hasIncoming ? maxPrevLayer + 1 : 0;
+                layerById[neuronId] = layer;
+                visiting.Remove(neuronId);
+                return layer;
+            }
+            
+            // Đảm bảo tất cả neuron đều có layer
+            foreach (Neuron neuron in neurons)
+            {
+                GetLayer(neuron.id);
+            }
+            
+            return layerById;
         }
 
         #endregion
@@ -421,8 +532,12 @@ namespace Verrarium.UI
                 CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Lineage ID", $"#{lineage.LineageId:0000}");
                 CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Genome Code", lineage.GenomeCode);
                 CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Parent Code", lineage.ParentGenomeCode);
-                
-                // Hiển thị Species Code nếu có
+
+                // Hiển thị Genus/Species nếu có
+                if (lineage.GenusId >= 0)
+                {
+                    CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Genus", lineage.GenusCode);
+                }
                 if (lineage.SpeciesId >= 0)
                 {
                     CreatureInspectorHelper.CreateGenomeRow(genomeListRoot, "Species", lineage.SpeciesCode);

@@ -8,14 +8,16 @@ namespace Verrarium.Evolution
     public static class NEATMutator
     {
         // Xác suất mặc định cho mỗi loại đột biến
-        private const float PROB_CHANGE_WEIGHT = 0.8f;
+        // Tăng mạnh xác suất các đột biến cấu trúc (thêm/xóa nơ-ron, synapse)
+        // để tạo ra khác biệt kiến trúc lớn hơn giữa các brain, hỗ trợ speciation.
+        private const float PROB_CHANGE_WEIGHT = 0.6f;
         private const float PROB_FLIP_WEIGHT = 0.1f;
         private const float PROB_TOGGLE_SYNAPSE = 0.1f;
-        private const float PROB_ADD_SYNAPSE = 0.3f;
-        private const float PROB_REMOVE_SYNAPSE = 0.2f;
+        private const float PROB_ADD_SYNAPSE = 0.45f;
+        private const float PROB_REMOVE_SYNAPSE = 0.25f;
         private const float PROB_CHANGE_ACTIVATION = 0.1f;
-        private const float PROB_ADD_NEURON = 0.05f; // Hiếm hơn vì quan trọng hơn
-        private const float PROB_REMOVE_NEURON = 0.02f; // Rất hiếm
+        private const float PROB_ADD_NEURON = 0.15f; // Tăng: xuất hiện thường xuyên hơn
+        private const float PROB_REMOVE_NEURON = 0.05f; // Tăng: dễ cắt bớt nơ-ron hơn
 
         /// <summary>
         /// Áp dụng đột biến cho mạng NEAT dựa trên số lượng đột biến

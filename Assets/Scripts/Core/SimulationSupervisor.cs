@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using Verrarium.Resources;
@@ -20,6 +22,13 @@ using UnityEngine.InputSystem.Controls;
 
 namespace Verrarium.Core
 {
+    public enum ResourceRemovalReason
+    {
+        Unknown = 0,
+        Consumed = 1,
+        Decayed = 2
+    }
+
     /// <summary>
     /// Supervisor quản lý toàn bộ giả lập - Singleton pattern
     /// Quản lý quần thể, tài nguyên, và các sự kiện tiến hóa
@@ -48,21 +57,22 @@ namespace Verrarium.Core
         [SerializeField] private int plantsPerSpawn = 2; // Dùng cho legacy spawn (khi không có hex grid)
         [SerializeField] private float resourceSpawnPopulationThreshold = 0.8f; // Dừng spawn resource khi dân số >= 80% max population (legacy)
         
-        [Header("Grid Fertility Settings")]
-        [SerializeField] private float hotspotFertilityRate = 0.5f; // Tỷ lệ spawn của grid hotspot (0-1)
-        [SerializeField] private float normalFertilityRate = 0.3f; // Tỷ lệ spawn của grid bình thường (0-1)
-        [SerializeField] private int hotspotFertilityLevel = 10; // Fertility level của grid hotspot
-        [SerializeField] private int normalFertilityLevel = 5; // Fertility level của grid bình thường
-        [SerializeField, Range(0f, 2f)] private float globalFertilityRateMultiplier = 1f; // Nhân với fertilityRate của từng grid
-        
-        [Header("Fertility Recovery Settings")]
-        [SerializeField] private float baseRecoveryInterval = 10f; // Thời gian cơ bản để hồi lại 1 fertility level (giây)
-        [SerializeField] private float emptyGridRecoveryMultiplier = 15f; // Hệ số nhân recovery interval khi grid không có tài nguyên (chậm hơn rất nhiều)
-        [SerializeField, Range(0.5f, 3f)] private float recoveryIntervalRandomness = 1.5f; // Độ ngẫu nhiên của recovery interval
-        
-        [Header("Grid Capacity Settings")]
-        [SerializeField] private int hotspotMaxCapacity = 15; // Số lượng tài nguyên tối đa ở hotspot
-        [SerializeField] private int normalGridMaxCapacity = 5; // Số lượng tài nguyên tối đa ở grid bình thường
+        [Header("Hotspot Resource Logic")]
+        [SerializeField] private int hotspotInitialFertilityPerGrid = 10; // Fertility ban đầu cho mỗi grid hotspot
+        [SerializeField] private int hotspotMaxFertilityPerGrid = 10;     // Fertility tối đa cho mỗi grid hotspot
+        [SerializeField, Min(0)] private int hotspotMaxResourcesPerGrid = 5; // Max plant per grid cho hotspot (dùng chung)
+        [SerializeField, Min(0)] private int hotspotPlantsPerSpawnPerGrid = 1; // Mỗi interval, mỗi grid hotspot spawn tối đa N plant
+
+        [Header("Fertility Time Recovery")]
+        [SerializeField] private bool enableFertilityTimeRecovery = true;
+        [SerializeField, Min(0.1f)] private float fertilityRecoveryIntervalSeconds = 10f; // Thời gian cơ bản để hồi fertility (giây)
+        [SerializeField, Range(0.5f, 3f)] private float fertilityRecoveryIntervalRandomness = 1.5f; // Độ ngẫu nhiên cho interval
+        [SerializeField, Min(1)] private int fertilityRecoveryAmount = 1; // Mỗi lần hồi, tăng fertility bao nhiêu
+
+        [Header("Fertility Restore Triggers")]
+        [SerializeField, Min(1)] private int plantDecayFertilityRestoreAmount = 1; // Plant decay -> hồi fertility cho chính grid đó
+        [SerializeField, Min(0)] private int creatureDeathFertilityRestoreMin = 1; // Creature chết trong hotspot -> hồi fertility ngẫu nhiên 1 grid trong hotspot
+        [SerializeField, Min(0)] private int creatureDeathFertilityRestoreMax = 3;
         
         [Header("Hotspot Settings")]
         [SerializeField] private int numberOfHotspots = 3; // Số lượng hotspot
@@ -83,6 +93,12 @@ namespace Verrarium.Core
         [Header("Pheromone Settings")]
         [SerializeField] private bool enablePheromones = false; // Toggle bật/tắt hệ thống pheromone
 
+        [Header("Creature Spawn Settings")]
+        [SerializeField] private bool spawnCreaturesNearHotspots = true; // Spawn sinh vật quanh hotspot (nếu có hex grid)
+        [SerializeField, Min(0)] private int hotspotSpawnRadiusCells = 2; // Bán kính (tính theo số ô hex) quanh hotspot được phép spawn
+        [SerializeField, Min(0f)] private float minCreatureSpawnDistance = 1.5f; // Khoảng cách tối thiểu giữa các sinh vật khi spawn để giảm va chạm
+        [SerializeField, Min(1)] private int creatureSpawnAttemptsPerCreature = 25; // Số lần thử tìm vị trí hợp lệ cho mỗi sinh vật
+
         [Header("Fertile Areas")]
         [SerializeField] private List<Transform> fertileAreas = new List<Transform>();
 
@@ -102,6 +118,7 @@ namespace Verrarium.Core
         
         // Danh sách các hotspot (mỗi hotspot là 3 grid liền kề)
         private List<List<HexCoordinates>> hotspotGroups = new List<List<HexCoordinates>>();
+        private Dictionary<HexCoordinates, int> hotspotGroupIndexByCoord = new Dictionary<HexCoordinates, int>();
 
         // Thống kê
         private int totalCreaturesBorn = 0;
@@ -114,6 +131,14 @@ namespace Verrarium.Core
         [SerializeField] private float autosaveInterval = 600f; // 10 phút = 600 giây
         private float lastAutosaveTime = 0f;
 
+        [Header("Warmup Settings")]
+        [SerializeField] private bool enableWarmupPhase = true; // Bật warmup để spawn tài nguyên trước khi spawn sinh vật
+        [SerializeField] private float warmupDuration = 30f;    // Thời gian warmup (giây)
+        [SerializeField] private float warmupResourceInterval = 1f; // Interval spawn tài nguyên trong warmup (giây)
+
+        [Header("Temp Save Settings")]
+        [SerializeField] private bool loadTempSaveOnStart = false; // Nếu bật, sẽ tự động load file JSON duy nhất trong Assets/TempSave khi bắt đầu giả lập
+
         // Pause state
         private bool isPaused = false;
         public bool IsPaused => isPaused;
@@ -123,6 +148,7 @@ namespace Verrarium.Core
         [Header("Speciation Settings")]
         [SerializeField] private bool enableSpeciation = true;
         private SpeciationSystem speciationSystem;
+        private GenusSystem genusSystem;
 
         private void Awake()
         {
@@ -143,6 +169,7 @@ namespace Verrarium.Core
             if (enableSpeciation)
             {
                 speciationSystem = new SpeciationSystem();
+                genusSystem = new GenusSystem(speciationSystem);
             }
             
             // Ghi nhận thời điểm bắt đầu chạy giả lập
@@ -166,12 +193,6 @@ namespace Verrarium.Core
                 SetupHexGridFertileAreas();
                 InitializeGridFertility();
             }
-            
-            // Spawn initial resources trước khi spawn creatures
-            // SpawnInitialResources(); // Đã bỏ logic initial resource spawn
-            
-            SpawnInitialCreatures();
-            InvokeRepeating(nameof(SpawnResources), 1f, resourceSpawnInterval);
 
             // Rebuild spatial grids định kỳ
             InvokeRepeating(nameof(RebuildSpatialGrids), 2f, 2f);
@@ -183,6 +204,26 @@ namespace Verrarium.Core
             if (drainDecayInterval <= 0f)
             {
                 drainDecayInterval = resourceSpawnInterval * 4f;
+            }
+
+            // Nếu được cấu hình, thử load save file duy nhất trong Assets/TempSave
+            if (loadTempSaveOnStart)
+            {
+                TryLoadTempSaveFromAssets();
+            }
+            else
+            {
+                // Nếu bật warmup, spawn tài nguyên trước rồi mới spawn sinh vật
+                if (enableWarmupPhase)
+                {
+                    StartCoroutine(WarmupRoutine());
+                }
+                else
+                {
+                    // Không dùng warmup: behavior cũ
+                    SpawnInitialCreatures();
+                    InvokeRepeating(nameof(SpawnResources), 1f, resourceSpawnInterval);
+                }
             }
         }
 
@@ -239,6 +280,77 @@ namespace Verrarium.Core
             else
             {
                 Debug.LogWarning("Autosave failed!");
+            }
+        }
+
+        /// <summary>
+        /// Warmup: spawn tài nguyên nhanh trong một khoảng thời gian trước khi spawn sinh vật
+        /// </summary>
+        private IEnumerator WarmupRoutine()
+        {
+            // Bắt đầu spawn tài nguyên với interval warmup
+            InvokeRepeating(nameof(SpawnResources), 1f, warmupResourceInterval);
+
+            float elapsed = 0f;
+            while (elapsed < warmupDuration)
+            {
+                // Không tăng thời gian nếu đang pause
+                if (!isPaused)
+                {
+                    elapsed += Time.deltaTime;
+                }
+                yield return null;
+            }
+
+            // Chuyển sang interval spawn tài nguyên bình thường
+            CancelInvoke(nameof(SpawnResources));
+            InvokeRepeating(nameof(SpawnResources), resourceSpawnInterval, resourceSpawnInterval);
+
+            // Sau khi tài nguyên đã được spawn trước, mới spawn sinh vật
+            SpawnInitialCreatures();
+        }
+
+        /// <summary>
+        /// Thử load một save file duy nhất từ thư mục Assets/TempSave.
+        /// Giả định trong thư mục chỉ có một file .json hợp lệ.
+        /// </summary>
+        private void TryLoadTempSaveFromAssets()
+        {
+            try
+            {
+                string assetsPath = Application.dataPath;
+                string tempSaveFolderPath = Path.Combine(assetsPath, "TempSave");
+
+                if (!Directory.Exists(tempSaveFolderPath))
+                {
+                    Debug.LogWarning($"TempSave folder not found at path: {tempSaveFolderPath}");
+                    return;
+                }
+
+                string[] jsonFiles = Directory.GetFiles(tempSaveFolderPath, "*.json");
+                if (jsonFiles == null || jsonFiles.Length == 0)
+                {
+                    Debug.LogWarning($"No .json save file found in TempSave folder: {tempSaveFolderPath}");
+                    return;
+                }
+
+                // Giả định chỉ có một file, nên lấy file đầu tiên
+                string tempSaveFilePath = jsonFiles[0];
+
+                string json = File.ReadAllText(tempSaveFilePath);
+                Save.SimulationSaveData saveData = JsonUtility.FromJson<Save.SimulationSaveData>(json);
+                if (saveData == null)
+                {
+                    Debug.LogError($"Failed to deserialize temp save file at path: {tempSaveFilePath}");
+                    return;
+                }
+
+                LoadFromSaveData(saveData);
+                Debug.Log($"Loaded simulation from temp save file: {tempSaveFilePath}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"Error loading temp save from Assets/TempSave: {e.Message}\n{e.StackTrace}");
             }
         }
 
@@ -946,7 +1058,7 @@ namespace Verrarium.Core
         }
 
         /// <summary>
-        /// Sinh ra các thực vật ban đầu - chỉ spawn trong hotspot và 2 grid ngẫu nhiên bên cạnh
+        /// Sinh ra các thực vật ban đầu - chỉ spawn trong hotspot
         /// </summary>
         private void SpawnInitialResources()
         {
@@ -955,29 +1067,10 @@ namespace Verrarium.Core
             // Tính số lượng tài nguyên cần spawn
             int resourcesToSpawn = Mathf.Min(initialResources, maxResources);
             
+            // Rule: chỉ hotspot mới có thể spawn tài nguyên. Không có hex grid/hotspot => không spawn.
             if (!useHexGrid || hexGrid == null)
             {
-                // Fallback: spawn ngẫu nhiên nếu không có hex grid
-                Debug.LogWarning($"SpawnInitialResources: Fallback về spawn ngẫu nhiên vì useHexGrid={useHexGrid}, hexGrid={hexGrid}");
-                for (int i = 0; i < resourcesToSpawn; i++)
-                {
-                    Vector2 spawnPos = GetRandomPosition();
-                    bool tooClose = false;
-                    foreach (Resource existingResource in activeResources)
-                    {
-                        if (existingResource == null) continue;
-                        float distance = Vector2.Distance(spawnPos, existingResource.transform.position);
-                        if (distance < minResourceDistance)
-                        {
-                            tooClose = true;
-                            break;
-                        }
-                    }
-                    if (!tooClose)
-                    {
-                        SpawnPlant(spawnPos);
-                    }
-                }
+                Debug.LogWarning($"SpawnInitialResources: Không spawn vì rule hotspot-only (useHexGrid={useHexGrid}, hexGrid={hexGrid}).");
                 return;
             }
 
@@ -1012,43 +1105,12 @@ namespace Verrarium.Core
             int maxAttempts = resourcesToSpawn * 100; // Tăng số lần thử để đảm bảo spawn đủ
             int attempts = 0;
 
-            // Tập hợp tất cả cells có thể spawn (hotspot + neighbors) từ tất cả hotspot groups
-            HashSet<HexCoordinates> allHotspotCoords = new HashSet<HexCoordinates>();
-            List<HexCell> allSpawnableCells = new List<HexCell>();
-            
-            foreach (var hotspotGroup in hotspotGroups)
-            {
-                // Thêm hotspot cells
-                foreach (var hotspotCoord in hotspotGroup)
-                {
-                    allHotspotCoords.Add(hotspotCoord);
-                    HexCell cell = hexGrid.GetCell(hotspotCoord);
-                    if (cell != null && !allSpawnableCells.Any(c => c.Coordinates == hotspotCoord))
-                    {
-                        allSpawnableCells.Add(cell);
-                    }
-                }
-                
-                // Thêm neighbor cells
-                foreach (var hotspotCoord in hotspotGroup)
-                {
-                    var neighbors = hexGrid.GetNeighbors(hotspotCoord);
-                    foreach (var neighbor in neighbors)
-                    {
-                        if (neighbor != null && !allHotspotCoords.Contains(neighbor.Coordinates))
-                        {
-                            if (!allSpawnableCells.Any(c => c.Coordinates == neighbor.Coordinates))
-                            {
-                                allSpawnableCells.Add(neighbor);
-                            }
-                        }
-                    }
-                }
-            }
+            // Tập hợp tất cả hotspot cells có thể spawn
+            List<HexCell> allSpawnableCells = BuildHotspotResourceCells();
             
             if (allSpawnableCells.Count == 0)
             {
-                Debug.LogError("Không có cells để spawn initial resources!");
+                Debug.LogError("Không có hotspot cells hợp lệ để spawn initial resources!");
                 return;
             }
             
@@ -1083,43 +1145,12 @@ namespace Verrarium.Core
                 }
             }
 
-            // Nếu chưa đủ, spawn ở bất kỳ grid nào còn chỗ (đảm bảo spawn đủ initialResources)
-            if (spawnedCount < resourcesToSpawn)
-            {
-                var allCells = hexGrid.GetAllCells();
-                var availableCells = allCells.Where(cell =>
-                {
-                    int currentCapacity = GetCurrentMaxCapacity(cell);
-                    int currentResources = GetResourceCountInGrid(cell.Coordinates);
-                    return currentResources < currentCapacity;
-                }).OrderBy(cell => GetResourceCountInGrid(cell.Coordinates)).ToList(); // Ưu tiên grid có ít tài nguyên hơn
-
-                foreach (var cell in availableCells)
-                {
-                    if (spawnedCount >= resourcesToSpawn) break;
-                    
-                    int currentCapacity = GetCurrentMaxCapacity(cell);
-                    int currentResources = GetResourceCountInGrid(cell.Coordinates);
-                    
-                    while (currentResources < currentCapacity && spawnedCount < resourcesToSpawn && attempts < maxAttempts)
-                    {
-                        attempts++;
-                        if (TrySpawnInGrid(cell, ref spawnedCount, resourcesToSpawn, ref attempts, maxAttempts))
-                        {
-                            currentResources = GetResourceCountInGrid(cell.Coordinates);
-                        }
-                        else if (attempts >= maxAttempts)
-                        {
-                            break;
-                        }
-                    }
-                }
-            }
+            // Không fallback ra ngoài hotspot: nếu không spawn đủ thì chấp nhận thiếu.
 
             // Log kết quả
             if (spawnedCount < resourcesToSpawn)
             {
-                Debug.LogWarning($"Không thể spawn đủ tài nguyên ban đầu: {spawnedCount}/{resourcesToSpawn}. Có thể do không đủ không gian hoặc maxResources quá thấp.");
+                Debug.LogWarning($"Không thể spawn đủ tài nguyên ban đầu theo rule hotspot-only: {spawnedCount}/{resourcesToSpawn}. Có thể do hotspot quá nhỏ/đầy hoặc maxResources quá thấp.");
             }
             else
             {
@@ -1138,10 +1169,109 @@ namespace Verrarium.Core
                 return;
             }
 
-            for (int i = 0; i < targetPopulationSize / 2; i++)
+            int countToSpawn = targetPopulationSize / 2;
+
+            // Nếu có hex grid + hotspot, spawn quanh hotspot với khoảng cách tối thiểu
+            if (spawnCreaturesNearHotspots && useHexGrid && hexGrid != null && hotspotGroups != null && hotspotGroups.Count > 0)
+            {
+                List<Vector2> spawnedPositions = new List<Vector2>(countToSpawn);
+                List<HexCell> candidateCells = BuildHotspotSpawnCandidateCells(hotspotSpawnRadiusCells);
+
+                for (int i = 0; i < countToSpawn; i++)
+                {
+                    Vector2 pos;
+                    bool found = TryGetSpawnPositionFromCells(candidateCells, spawnedPositions, out pos);
+                    if (!found)
+                    {
+                        pos = GetRandomPosition();
+                    }
+
+                    SpawnCreature(pos, Genome.CreateDefault());
+                    spawnedPositions.Add(pos);
+                }
+
+                return;
+            }
+
+            // Fallback: behavior cũ
+            for (int i = 0; i < countToSpawn; i++)
             {
                 SpawnCreature(GetRandomPosition(), Genome.CreateDefault());
             }
+        }
+
+        private List<HexCell> BuildHotspotSpawnCandidateCells(int radiusCells)
+        {
+            List<HexCell> candidates = new List<HexCell>();
+            if (hexGrid == null || hotspotGroups == null || hotspotGroups.Count == 0) return candidates;
+
+            var allCells = hexGrid.GetAllCells();
+            if (allCells == null || allCells.Count == 0) return candidates;
+
+            // Gom tất cả hotspot coords để tính khoảng cách nhanh
+            List<HexCoordinates> hotspotCoords = new List<HexCoordinates>();
+            foreach (var group in hotspotGroups)
+            {
+                if (group == null) continue;
+                foreach (var coord in group)
+                {
+                    hotspotCoords.Add(coord);
+                }
+            }
+
+            foreach (var cell in allCells)
+            {
+                int minDist = int.MaxValue;
+                foreach (var coord in hotspotCoords)
+                {
+                    int d = cell.Coordinates.DistanceTo(coord);
+                    if (d < minDist) minDist = d;
+                    if (minDist == 0) break;
+                }
+
+                if (minDist != int.MaxValue && minDist <= radiusCells)
+                {
+                    candidates.Add(cell);
+                }
+            }
+
+            return candidates;
+        }
+
+        private bool TryGetSpawnPositionFromCells(List<HexCell> candidateCells, List<Vector2> alreadySpawned, out Vector2 position)
+        {
+            position = Vector2.zero;
+            if (candidateCells == null || candidateCells.Count == 0) return false;
+
+            int attempts = Mathf.Max(1, creatureSpawnAttemptsPerCreature);
+            for (int i = 0; i < attempts; i++)
+            {
+                HexCell cell = candidateCells[Random.Range(0, candidateCells.Count)];
+                Vector2 center = hexGrid.HexToWorld(cell.Coordinates);
+
+                // Spawn trong phạm vi bên trong cell để tránh sát rìa
+                Vector2 candidate = center + Random.insideUnitCircle * (hexGrid.HexSize * 0.4f);
+                candidate = ClampToWorldBounds(candidate);
+
+                bool tooClose = false;
+                float minDist = Mathf.Max(0f, minCreatureSpawnDistance);
+                for (int j = 0; j < alreadySpawned.Count; j++)
+                {
+                    if (Vector2.Distance(candidate, alreadySpawned[j]) < minDist)
+                    {
+                        tooClose = true;
+                        break;
+                    }
+                }
+
+                if (!tooClose)
+                {
+                    position = candidate;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -1155,19 +1285,30 @@ namespace Verrarium.Core
             if (controller != null)
             {
                 controller.Initialize(genome, brain);
-                
-                // Classify to species nếu có brain và speciation enabled
-                int speciesId = -1;
-                if (enableSpeciation && speciationSystem != null && brain != null)
+
+                int genusId = -1;
+                int speciesIdInGenus = -1;
+                var brainForSpeciation = controller.GetBrain();
+
+                // Phân loại Genus/Species nếu có brain và speciation enabled
+                if (enableSpeciation && genusSystem != null && brainForSpeciation != null)
                 {
-                    speciesId = speciationSystem.ClassifyToSpecies(brain);
+                    // Sinh vật khởi tạo thế hệ 0
+                    int generationIndex = lineageRecord != null ? lineageRecord.GenerationIndex : 0;
+                    (genusId, speciesIdInGenus) = genusSystem.Classify(genome, brainForSpeciation, generationIndex);
                 }
-                
+
                 if (lineageRecord == null)
                 {
-                    // Tạo lineage record với species ID
-                    lineageRecord = Data.CreatureLineageRegistry.CreateRecord(genome, null, speciesId);
+                    // Tạo lineage record với Genus/Species ID
+                    lineageRecord = Data.CreatureLineageRegistry.CreateRecord(genome, null, genusId, speciesIdInGenus);
                 }
+                else if (enableSpeciation && genusSystem != null && brainForSpeciation != null)
+                {
+                    // Khi load từ save: đăng ký lại vào GenusSystem dựa trên Genus/Species và thế hệ trong lineage
+                    genusSystem.RegisterExisting(lineageRecord.GenusId, lineageRecord.SpeciesId, genome, brainForSpeciation, lineageRecord.GenerationIndex);
+                }
+
                 controller.SetLineageRecord(lineageRecord);
                 Data.CreatureLineageRegistry.Bind(controller, lineageRecord);
                 activeCreatures.Add(controller);
@@ -1221,6 +1362,9 @@ namespace Verrarium.Core
                     }
                 }
             }
+
+            // Creature chết trong hotspot -> hồi fertility cho 1 grid ngẫu nhiên trong hotspot đó
+            RestoreFertilityOnCreatureDeath(deathPosition);
         }
 
         /// <summary>
@@ -1228,14 +1372,13 @@ namespace Verrarium.Core
         /// </summary>
         public void OnCreatureReproduction(CreatureController parent, Vector2 position, Genome parentGenome)
         {
-            // Áp dụng đột biến dựa trên mutationRate của cha mẹ
-            int numMutations = PoissonRandom(parentGenome.mutationRate);
-            Genome childGenome = parentGenome;
-            
-            for (int i = 0; i < numMutations; i++)
-            {
-                childGenome = Genome.Mutate(childGenome, 0.1f);
-            }
+            // Tách mutation rate: genome vs brain (NEAT). Save cũ: brainMutationRate = 0 -> fallback theo mutationRate.
+            int numGenomeMutations = PoissonRandom(parentGenome.mutationRate);
+            float brainLambda = parentGenome.brainMutationRate > 0f ? parentGenome.brainMutationRate : parentGenome.mutationRate;
+            int numBrainMutations = PoissonRandom(brainLambda);
+
+            // Mỗi thuộc tính genome chỉ đột biến tối đa 1 lần: truyền numGenomeMutations vào Mutate để chọn ngẫu nhiên từng ấy thuộc tính khác nhau
+            Genome childGenome = Genome.Mutate(parentGenome, 0.1f, numGenomeMutations);
 
             // Sao chép và đột biến bộ não
             Evolution.NEATNetwork childBrain = null;
@@ -1247,21 +1390,23 @@ namespace Verrarium.Core
                     childBrain = new Evolution.NEATNetwork(parentBrain);
                     
                     // Áp dụng đột biến NEAT đầy đủ
-                    Evolution.NEATMutator.Mutate(childBrain, numMutations);
+                    Evolution.NEATMutator.Mutate(childBrain, numBrainMutations);
                 }
             }
 
             Data.CreatureLineageRecord parentRecord = Data.CreatureLineageRegistry.Get(parent);
             
-            // Classify child to species
-            int childSpeciesId = -1;
-            if (enableSpeciation && speciationSystem != null && childBrain != null)
+            // Classify child to Genus/Species (dựa trên GenerationIndex = parent.GenerationIndex + 1)
+            int childGenusId = -1;
+            int childSpeciesIdInGenus = -1;
+            if (enableSpeciation && genusSystem != null && childBrain != null)
             {
-                childSpeciesId = speciationSystem.ClassifyToSpecies(childBrain);
+                int childGenerationIndex = parentRecord != null ? parentRecord.GenerationIndex + 1 : 0;
+                (childGenusId, childSpeciesIdInGenus) = genusSystem.Classify(childGenome, childBrain, childGenerationIndex);
             }
             
-            // Tạo lineage record với species ID
-            Data.CreatureLineageRecord childRecord = Data.CreatureLineageRegistry.CreateRecord(childGenome, parentRecord, childSpeciesId);
+            // Tạo lineage record với Genus/Species ID
+            Data.CreatureLineageRecord childRecord = Data.CreatureLineageRegistry.CreateRecord(childGenome, parentRecord, childGenusId, childSpeciesIdInGenus);
 
             // Sinh trứng thay vì sinh trực tiếp sinh vật
             SpawnEgg(position, childGenome, childBrain, childRecord);
@@ -1296,94 +1441,43 @@ namespace Verrarium.Core
         }
 
         /// <summary>
-        /// Khởi tạo fertility cho các grid cells
+        /// Khởi tạo fertility/capacity cho hotspot grids.
+        /// Rule hiện tại: chỉ hotspot grids spawn plant, các grid khác fertilityLevel=0 để tránh dùng nhầm.
         /// </summary>
         private void InitializeGridFertility()
         {
             if (hexGrid == null) return;
-            
+
+            // Rebuild index map cho hotspot coords -> group index
+            RebuildHotspotIndex();
+
             var allCells = hexGrid.GetAllCells();
             foreach (var cell in allCells)
             {
-                // Xác định xem grid có phải hotspot không
-                bool isHotspot = cell.isFertile;
-                
-                // Tính khoảng cách đến hotspot gần nhất (khoảng cách đến grid gần nhất trong nhóm hotspot)
-                int minDistanceToHotspot = int.MaxValue;
-                if (hotspotGroups.Count > 0)
-                {
-                    foreach (var hotspotGroup in hotspotGroups)
-                    {
-                        // Tìm khoảng cách tối thiểu đến nhóm hotspot này
-                        int minDistanceToGroup = int.MaxValue;
-                        foreach (var hotspotCoord in hotspotGroup)
-                        {
-                            int distance = cell.Coordinates.DistanceTo(hotspotCoord);
-                            if (distance < minDistanceToGroup)
-                            {
-                                minDistanceToGroup = distance;
-                            }
-                        }
-                        
-                        // Cập nhật khoảng cách tối thiểu tổng thể
-                        if (minDistanceToGroup < minDistanceToHotspot)
-                        {
-                            minDistanceToHotspot = minDistanceToGroup;
-                        }
-                    }
-                }
-                
-                // Thiết lập fertility rate và level dựa trên hotspot
+                if (cell == null) continue;
+
+                bool isHotspot = hotspotGroupIndexByCoord.ContainsKey(cell.Coordinates);
                 if (isHotspot)
                 {
-                    cell.fertilityRate = hotspotFertilityRate;
-                    cell.fertilityLevel = hotspotFertilityLevel;
+                    cell.fertilityLevel = Mathf.Clamp(hotspotInitialFertilityPerGrid, 0, hotspotMaxFertilityPerGrid);
+                    cell.baseMaxCapacity = Mathf.Max(0, hotspotMaxResourcesPerGrid);
                 }
                 else
                 {
-                    // Bắt đầu với normal fertility rate
-                    cell.fertilityRate = normalFertilityRate;
-                    
-                    // Giảm fertility rate dựa trên khoảng cách đến hotspot (mỗi grid xa hơn giảm 0.05)
-                    // Cho phép xuống 0 nếu quá xa
-                    if (minDistanceToHotspot != int.MaxValue && minDistanceToHotspot > 0)
-                    {
-                        float reduction = minDistanceToHotspot * 0.05f;
-                        cell.fertilityRate = Mathf.Max(0.1f, cell.fertilityRate - reduction);
-                    }
-                    
-                    cell.fertilityLevel = normalFertilityLevel;
+                    cell.fertilityLevel = 0;
+                    cell.baseMaxCapacity = 0;
                 }
-                
-                // Áp dụng global multiplier
-                cell.fertilityRate = Mathf.Clamp01(cell.fertilityRate * globalFertilityRateMultiplier);
-                
-                // Thiết lập base max capacity dựa trên hotspot
-                if (isHotspot)
-                {
-                    cell.baseMaxCapacity = hotspotMaxCapacity;
-                }
-                else
-                {
-                    cell.baseMaxCapacity = normalGridMaxCapacity;
-                }
-                
-                // Recovery rate luôn là 1 (hồi lại 1 fertility level mỗi lần)
-                cell.recoveryRate = 1f;
-                
-                // Khởi tạo recovery interval dựa trên baseRecoveryInterval với độ ngẫu nhiên
-                float minRecoveryInterval = baseRecoveryInterval;
-                float maxRecoveryInterval = baseRecoveryInterval * recoveryIntervalRandomness;
-                cell.recoveryInterval = Random.Range(minRecoveryInterval, maxRecoveryInterval);
-                
-                // Khởi tạo thời gian khôi phục đầu tiên
-                cell.nextFertilityRestoreTime = simulationTime + cell.recoveryInterval;
-                
-                // Khởi tạo drain counter
+
+                // Drain counter vẫn dùng để giảm capacity khi bị ăn (nếu bạn muốn giữ cơ chế này)
                 cell.drainCounter = 0;
                 cell.lastDrainTime = 0f;
-                
-                // Khởi tạo tracking
+
+                // Time recovery schedule
+                float minInterval = fertilityRecoveryIntervalSeconds;
+                float maxInterval = fertilityRecoveryIntervalSeconds * fertilityRecoveryIntervalRandomness;
+                cell.recoveryInterval = Random.Range(minInterval, maxInterval);
+                cell.nextFertilityRestoreTime = simulationTime + cell.recoveryInterval;
+
                 resourcesPerGridCell[cell.Coordinates] = 0;
             }
         }
@@ -1408,43 +1502,35 @@ namespace Verrarium.Core
         }
         
         /// <summary>
-        /// Cập nhật khôi phục fertility level cho các grid
+        /// Cơ chế hồi fertility theo thời gian đã bị tắt.
+        /// Fertility chỉ hồi khi plant decay hoặc creature chết trong hotspot (xem RestoreFertilityOn*).
         /// </summary>
         private void UpdateGridFertilityRestoration()
         {
-            if (hexGrid == null) return;
-            
-            var allCells = hexGrid.GetAllCells();
-            foreach (var cell in allCells)
+            if (!enableFertilityTimeRecovery) return;
+            if (!useHexGrid || hexGrid == null) return;
+            if (hotspotGroups == null || hotspotGroups.Count == 0) return;
+            if (fertilityRecoveryAmount <= 0) return;
+
+            var hotspotCells = BuildHotspotResourceCells();
+            if (hotspotCells.Count == 0) return;
+
+            float minInterval = fertilityRecoveryIntervalSeconds;
+            float maxInterval = fertilityRecoveryIntervalSeconds * fertilityRecoveryIntervalRandomness;
+
+            foreach (var cell in hotspotCells)
             {
+                if (cell == null) continue;
+
                 if (simulationTime >= cell.nextFertilityRestoreTime)
                 {
-                    // Khôi phục 1 fertility level (recoveryRate luôn = 1)
-                    bool isHotspot = cell.isFertile;
-                    int maxFertilityLevel = isHotspot ? hotspotFertilityLevel : normalFertilityLevel;
-                    cell.fertilityLevel = Mathf.Min(maxFertilityLevel, cell.fertilityLevel + Mathf.RoundToInt(cell.recoveryRate));
-                    
-                    // Kiểm tra số lượng tài nguyên hiện tại trong grid
-                    int currentResources = GetResourceCountInGrid(cell.Coordinates);
-                    
-                    // Tính toán recovery interval tiếp theo
-                    float minRecoveryInterval = baseRecoveryInterval;
-                    float maxRecoveryInterval = baseRecoveryInterval * recoveryIntervalRandomness;
-                    
-                    // Nếu grid không chứa tài nguyên, recovery interval tăng rất nhiều (chậm hơn rất nhiều)
-                    if (currentResources == 0)
-                    {
-                        // Tăng recovery interval lên rất nhiều khi grid trống
-                        float emptyGridInterval = baseRecoveryInterval * emptyGridRecoveryMultiplier;
-                        cell.recoveryInterval = Random.Range(emptyGridInterval, emptyGridInterval * recoveryIntervalRandomness);
-                    }
-                    else
-                    {
-                        // Recovery interval bình thường
-                        cell.recoveryInterval = Random.Range(minRecoveryInterval, maxRecoveryInterval);
-                    }
-                    
-                    // Thiết lập thời gian khôi phục tiếp theo
+                    cell.fertilityLevel = Mathf.Clamp(
+                        cell.fertilityLevel + fertilityRecoveryAmount,
+                        0,
+                        hotspotMaxFertilityPerGrid
+                    );
+
+                    cell.recoveryInterval = Random.Range(minInterval, maxInterval);
                     cell.nextFertilityRestoreTime = simulationTime + cell.recoveryInterval;
                 }
             }
@@ -1482,6 +1568,31 @@ namespace Verrarium.Core
             
             return count;
         }
+
+        /// <summary>
+        /// Lấy số lượng plant trong một grid cell (không tính meat) để áp dụng max per grid cho plant.
+        /// </summary>
+        private int GetPlantCountInGrid(HexCoordinates coords)
+        {
+            if (hexGrid == null || resourceGrid == null) return 0;
+
+            int count = 0;
+            Vector2 gridCenter = hexGrid.HexToWorld(coords);
+            float gridRadius = hexGrid.HexSize * 0.6f;
+
+            foreach (var resource in activeResources)
+            {
+                if (resource == null) continue;
+                if (resource.Type != ResourceType.Plant) continue;
+                float distance = Vector2.Distance(resource.transform.position, gridCenter);
+                if (distance <= gridRadius)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
         
         /// <summary>
         /// Sinh tài nguyên định kỳ - Logic mới: mỗi grid có fertility riêng
@@ -1502,9 +1613,6 @@ namespace Verrarium.Core
             return count;
         }
         
-        /// <summary>
-        /// Sinh tài nguyên định kỳ - Logic với fertility rate và level, kết hợp drain counter
-        /// </summary>
         private void SpawnResources()
         {
             // Dọn dẹp null entries trước khi kiểm tra
@@ -1517,16 +1625,21 @@ namespace Verrarium.Core
                 return; // Không spawn thêm nếu đã đạt max
             }
 
+            // Rule: chỉ hotspot mới có thể spawn tài nguyên. Không có hex grid/hotspot => không spawn.
             if (!useHexGrid || hexGrid == null)
             {
-                // Fallback: sử dụng logic cũ nếu không có hex grid
-                SpawnResourcesLegacy();
+                Debug.LogWarning($"SpawnResources: Không spawn vì rule hotspot-only (useHexGrid={useHexGrid}, hexGrid={hexGrid}).");
                 return;
             }
 
-            // Duyệt qua tất cả các grid cells và spawn tài nguyên dựa trên fertility rate và level
-            var allCells = hexGrid.GetAllCells();
-            int totalSpawned = 0;
+            // Chỉ duyệt qua hotspot cells và spawn tài nguyên dựa trên:
+            // - Max plant per grid (dùng chung cho hotspot)
+            // - Fertility level của từng grid (tiêu hao khi spawn)
+            var allCells = BuildHotspotResourceCells();
+            if (allCells.Count == 0)
+            {
+                return;
+            }
             
             foreach (var cell in allCells)
             {
@@ -1536,32 +1649,30 @@ namespace Verrarium.Core
                 {
                     break;
                 }
-                
-                // Tính hệ số scale dựa trên dân số hiện tại
+
+                // Scale spawn theo dân số (giữ lại setting legacy để vẫn chỉnh được trong Inspector)
                 int currentPopulation = activeCreatures.Count;
                 float populationRatio = 0f;
                 if (targetPopulationSize > 0)
                 {
                     populationRatio = Mathf.Clamp01((float)currentPopulation / targetPopulationSize);
                 }
-                
-                // Khi dân số đạt targetPopulationSize, threshold scale xuống 0 (không spawn),
-                // khi dân số thấp, threshold gần 1 (spawn bình thường).
-                float populationThreshold = 1f - populationRatio; // [1..0]
-                if (populationThreshold <= 0f)
+
+                // - Khi populationRatio < resourceSpawnPopulationThreshold: spawn bình thường
+                // - Khi populationRatio tiến tới 1: spawn giảm dần về 0
+                float spawnMultiplier = 1f;
+                if (populationRatio >= resourceSpawnPopulationThreshold)
                 {
-                    continue; // Không spawn khi dân số đã đạt/qua target
+                    float denom = Mathf.Max(0.0001f, 1f - resourceSpawnPopulationThreshold);
+                    float excessRatio = (populationRatio - resourceSpawnPopulationThreshold) / denom;
+                    spawnMultiplier = Mathf.Max(0f, 1f - Mathf.Clamp01(excessRatio));
                 }
-                
-                // Roll một giá trị random trong [0,1] và so sánh với cả fertilityRate và populationThreshold
-                float roll = Random.value;
-                
-                // Cần roll <= fertilityRate VÀ roll <= populationThreshold để spawn
-                if (roll > cell.fertilityRate || roll > populationThreshold)
+
+                if (spawnMultiplier <= 0f)
                 {
-                    continue; // Grid này không spawn lần này
+                    continue;
                 }
-                
+
                 // Kiểm tra fertility level - số lượng tài nguyên có thể spawn
                 if (cell.fertilityLevel <= 0)
                 {
@@ -1570,27 +1681,29 @@ namespace Verrarium.Core
                 
                 // Kiểm tra max capacity (có tính drain counter)
                 int currentCapacity = GetCurrentMaxCapacity(cell);
-                int currentResources = GetResourceCountInGrid(cell.Coordinates);
-                if (currentResources >= currentCapacity)
+                int currentPlantsInCell = GetPlantCountInGrid(cell.Coordinates);
+                if (currentPlantsInCell >= currentCapacity)
                 {
                     continue; // Grid đã đầy (do drain counter hoặc đã đạt baseMaxCapacity)
                 }
-                
-                // Spawn tài nguyên trong grid này
-                int resourcesToSpawn = Mathf.Min(cell.fertilityLevel, maxResources - currentPlantCount, currentCapacity - currentResources);
-                
-                for (int i = 0; i < resourcesToSpawn; i++)
+
+                int maxSpawnThisInterval = Mathf.Max(0, hotspotPlantsPerSpawnPerGrid);
+                if (maxSpawnThisInterval <= 0) continue;
+                maxSpawnThisInterval = Mathf.Max(0, Mathf.FloorToInt(maxSpawnThisInterval * spawnMultiplier));
+                if (maxSpawnThisInterval <= 0) continue;
+
+                int availableByFertility = cell.fertilityLevel;
+                int availableByCapacity = Mathf.Max(0, currentCapacity - currentPlantsInCell);
+                int availableByGlobal = Mathf.Max(0, maxResources - currentPlantCount);
+
+                int spawnCount = Mathf.Min(maxSpawnThisInterval, availableByFertility, availableByCapacity, availableByGlobal);
+                if (spawnCount <= 0) continue;
+
+                for (int i = 0; i < spawnCount; i++)
                 {
-                    // Tạo vị trí spawn ngẫu nhiên trong grid
                     Vector2 gridCenter = hexGrid.HexToWorld(cell.Coordinates);
                     Vector2 spawnPos = gridCenter + Random.insideUnitCircle * (hexGrid.HexSize * 0.4f);
-                    // Với hex grid, không clamp theo world bounds để tránh bị dồn về góc; chỉ clamp khi không dùng hex grid
-                    if (!useHexGrid)
-                    {
-                        spawnPos = ClampToWorldBounds(spawnPos);
-                    }
-                    
-                    // Kiểm tra khoảng cách tối thiểu với tài nguyên khác
+
                     bool tooClose = false;
                     foreach (Resource existingResource in activeResources)
                     {
@@ -1602,21 +1715,21 @@ namespace Verrarium.Core
                             break;
                         }
                     }
-                    
-                    if (!tooClose)
+
+                    if (tooClose)
                     {
-                        SpawnPlant(spawnPos);
-                        totalSpawned++;
-                        // Giảm 1 fertility level sau mỗi lần spawn tài nguyên (1 fertility level = 1 tài nguyên)
-                        cell.fertilityLevel = Mathf.Max(0, cell.fertilityLevel - 1);
-                        
-                        // Kiểm tra lại giới hạn
-                        currentPlantCount = GetPlantCount();
-                        if (currentPlantCount >= maxResources)
-                        {
-                            break;
-                        }
+                        continue;
                     }
+
+                    SpawnPlant(spawnPos);
+                    cell.fertilityLevel = Mathf.Max(0, cell.fertilityLevel - 1);
+
+                    // update counts for subsequent spawns in same cell
+                    currentPlantsInCell++;
+                    currentPlantCount = GetPlantCount();
+                    if (currentPlantCount >= maxResources) break;
+                    if (currentPlantsInCell >= currentCapacity) break;
+                    if (cell.fertilityLevel <= 0) break;
                 }
             }
         }
@@ -1672,59 +1785,9 @@ namespace Verrarium.Core
         /// </summary>
         private void SpawnResourcesLegacy()
         {
-            // Kiểm tra giới hạn số lượng tài nguyên cây (không tính thịt)
-            int plantCount = GetPlantCount();
-            if (plantCount >= maxResources)
-            {
-                return;
-            }
-
-            // Tính toán hệ số giảm spawn dựa trên dân số
-            int currentPopulation = activeCreatures.Count;
-            float populationRatio = (float)currentPopulation / maxPopulationSize;
-            
-            float spawnMultiplier = 1f;
-            if (populationRatio >= resourceSpawnPopulationThreshold)
-            {
-                float excessRatio = (populationRatio - resourceSpawnPopulationThreshold) / (1f - resourceSpawnPopulationThreshold);
-                spawnMultiplier = Mathf.Max(0f, 1f - excessRatio);
-            }
-
-            int plantsToSpawn = Mathf.RoundToInt(plantsPerSpawn * (1f + (targetPopulationSize - currentPopulation) / (float)targetPopulationSize));
-            plantsToSpawn = Mathf.Max(1, plantsToSpawn);
-            plantsToSpawn = Mathf.RoundToInt(plantsToSpawn * spawnMultiplier);
-            plantsToSpawn = Mathf.Max(0, plantsToSpawn);
-            int currentPlantCount = GetPlantCount();
-            int availableSlots = maxResources - currentPlantCount;
-            plantsToSpawn = Mathf.Min(plantsToSpawn, availableSlots);
-
-            int spawnedCount = 0;
-            int maxAttempts = plantsToSpawn * 5;
-            int attempts = 0;
-
-            while (spawnedCount < plantsToSpawn && attempts < maxAttempts)
-            {
-                attempts++;
-                Vector2 spawnPos = GetRandomPosition();
-
-                bool tooClose = false;
-                foreach (Resource existingResource in activeResources)
-                {
-                    if (existingResource == null) continue;
-                    float distance = Vector2.Distance(spawnPos, existingResource.transform.position);
-                    if (distance < minResourceDistance)
-                    {
-                        tooClose = true;
-                        break;
-                    }
-                }
-
-                if (!tooClose)
-                {
-                    SpawnPlant(spawnPos);
-                    spawnedCount++;
-                }
-            }
+            // Rule: hotspot-only. Legacy spawn bị vô hiệu hoá để tránh spawn ngoài hotspot.
+            Debug.LogWarning("SpawnResourcesLegacy: Bị vô hiệu hoá vì rule hotspot-only.");
+            return;
         }
 
         /// <summary>
@@ -1752,6 +1815,100 @@ namespace Verrarium.Core
         }
 
         /// <summary>
+        /// Lấy danh sách các cell thuộc hotspot (hợp lệ để spawn tài nguyên).
+        /// </summary>
+        private List<HexCell> BuildHotspotResourceCells()
+        {
+            List<HexCell> cells = new List<HexCell>();
+            if (!useHexGrid || hexGrid == null) return cells;
+            if (hotspotGroups == null || hotspotGroups.Count == 0) return cells;
+
+            HashSet<HexCoordinates> unique = new HashSet<HexCoordinates>();
+            foreach (var group in hotspotGroups)
+            {
+                if (group == null) continue;
+                foreach (var coord in group)
+                {
+                    if (!unique.Add(coord)) continue;
+                    HexCell cell = hexGrid.GetCell(coord);
+                    if (cell == null) continue;
+                    if (cell.isObstacle) continue;
+                    cells.Add(cell);
+                }
+            }
+
+            return cells;
+        }
+
+        private void RebuildHotspotIndex()
+        {
+            hotspotGroupIndexByCoord.Clear();
+            if (hotspotGroups == null) return;
+
+            for (int groupIndex = 0; groupIndex < hotspotGroups.Count; groupIndex++)
+            {
+                var group = hotspotGroups[groupIndex];
+                if (group == null) continue;
+                foreach (var coord in group)
+                {
+                    // Nếu trùng coord giữa các group (không nên), giữ group đầu tiên
+                    if (!hotspotGroupIndexByCoord.ContainsKey(coord))
+                    {
+                        hotspotGroupIndexByCoord[coord] = groupIndex;
+                    }
+                }
+            }
+        }
+
+        private void RestoreFertilityOnPlantDecay(HexCoordinates gridCoords)
+        {
+            if (!useHexGrid || hexGrid == null) return;
+            if (hotspotGroupIndexByCoord == null || hotspotGroupIndexByCoord.Count == 0) RebuildHotspotIndex();
+
+            if (!hotspotGroupIndexByCoord.ContainsKey(gridCoords))
+            {
+                return; // Không phải hotspot
+            }
+
+            HexCell cell = hexGrid.GetCell(gridCoords);
+            if (cell == null) return;
+
+            int amount = Mathf.Max(0, plantDecayFertilityRestoreAmount);
+            if (amount <= 0) return;
+
+            cell.fertilityLevel = Mathf.Clamp(cell.fertilityLevel + amount, 0, hotspotMaxFertilityPerGrid);
+        }
+
+        private void RestoreFertilityOnCreatureDeath(Vector2 deathPosition)
+        {
+            if (!useHexGrid || hexGrid == null) return;
+            if (hotspotGroups == null || hotspotGroups.Count == 0) return;
+
+            if (hotspotGroupIndexByCoord == null || hotspotGroupIndexByCoord.Count == 0) RebuildHotspotIndex();
+
+            HexCoordinates coords = hexGrid.WorldToHex(deathPosition);
+            if (!hotspotGroupIndexByCoord.TryGetValue(coords, out int groupIndex))
+            {
+                return; // Chết ngoài hotspot
+            }
+
+            if (groupIndex < 0 || groupIndex >= hotspotGroups.Count) return;
+            var group = hotspotGroups[groupIndex];
+            if (group == null || group.Count == 0) return;
+
+            HexCoordinates chosen = group[Random.Range(0, group.Count)];
+            HexCell chosenCell = hexGrid.GetCell(chosen);
+            if (chosenCell == null) return;
+
+            int min = Mathf.Max(0, creatureDeathFertilityRestoreMin);
+            int max = Mathf.Max(min, creatureDeathFertilityRestoreMax);
+            int amount = Random.Range(min, max + 1);
+            if (amount <= 0) return;
+
+            chosenCell.fertilityLevel = Mathf.Clamp(chosenCell.fertilityLevel + amount, 0, hotspotMaxFertilityPerGrid);
+        }
+
+        /// <summary>
         /// Cập nhật quần thể - loại bỏ các sinh vật đã chết
         /// </summary>
         private void UpdatePopulation()
@@ -1761,6 +1918,82 @@ namespace Verrarium.Core
             
             // Dọn dẹp danh sách tài nguyên (resources tự xóa khi decay hoặc bị ăn)
             activeResources.RemoveAll(r => r == null);
+
+            // Cập nhật đại diện loài dựa trên "fitness" gần đúng nếu đang bật speciation
+            // Ở đây dùng Age làm proxy cho fitness: sinh vật sống lâu hơn được coi là phù hợp hơn.
+            UpdateSpeciesRepresentativesIfNeeded();
+        }
+
+        /// <summary>
+        /// Cập nhật đại diện của mỗi loài trong GenusSystem
+        /// Sử dụng proxy fitness kết hợp: Age, energyAccumulated/age và offspringCount.
+        /// </summary>
+        private void UpdateSpeciesRepresentativesIfNeeded()
+        {
+            if (!enableSpeciation || genusSystem == null) return;
+            if (activeCreatures == null || activeCreatures.Count == 0) return;
+
+            var fitnessMap = new Dictionary<NEATNetwork, float>();
+
+            foreach (var creature in activeCreatures)
+            {
+                if (creature == null) continue;
+
+                var brain = creature.GetBrain();
+                if (brain == null) continue;
+
+                float fitness = ComputeProxyFitness(creature);
+
+                // Nếu nhiều Creature chia sẻ cùng một instance brain, lấy fitness cao nhất
+                if (fitnessMap.TryGetValue(brain, out float existing))
+                {
+                    if (fitness > existing)
+                    {
+                        fitnessMap[brain] = fitness;
+                    }
+                }
+                else
+                {
+                    fitnessMap[brain] = fitness;
+                }
+            }
+
+            if (fitnessMap.Count > 0)
+            {
+                genusSystem.UpdateRepresentatives(fitnessMap);
+            }
+        }
+
+        /// <summary>
+        /// Proxy fitness cho một sinh vật:
+        /// - Ưu tiên Age (sống lâu)
+        /// - EnergyAccumulated/Age (khả năng kiếm ăn hiệu quả)
+        /// - OffspringCount (khả năng sinh sản thành công)
+        /// Tất cả đều không chuẩn hoá tuyệt đối, nhưng được scale tương đối đơn giản.
+        /// </summary>
+        private float ComputeProxyFitness(CreatureController creature)
+        {
+            if (creature == null) return 0f;
+
+            float age = creature.Age;
+            float totalEnergy = creature.TotalEnergyGained;
+            int offspringCount = creature.OffspringCount;
+
+            float energyPerAge = 0f;
+            if (age > 1f)
+            {
+                energyPerAge = totalEnergy / age;
+            }
+
+            // Hệ số scale đơn giản:
+            // - Age: giữ nguyên
+            // - EnergyPerAge: nhân 0.5f để không lấn át Age
+            // - OffspringCount: mỗi con đóng góp 10 đơn vị
+            float fitness = age
+                           + 0.5f * energyPerAge
+                           + 10f * offspringCount;
+
+            return fitness;
         }
 
         /// <summary>
@@ -1816,6 +2049,7 @@ namespace Verrarium.Core
             if (hexGrid == null) return;
             
             hotspotGroups.Clear();
+            var claimedCoords = new HashSet<HexCoordinates>();
 
             // Nếu có fertile areas được gán, đánh dấu các hex tương ứng
             if (fertileAreas.Count > 0)
@@ -1825,21 +2059,17 @@ namespace Verrarium.Core
                     if (fertileArea != null)
                     {
                         HexCoordinates coords = hexGrid.WorldToHex(fertileArea.position);
-                        List<HexCoordinates> hotspotGroup = new List<HexCoordinates> { coords };
-                        hexGrid.SetFertile(coords, true);
-                        
-                        // Thêm các grid lân cận để tạo group
-                        var neighbors = hexGrid.GetNeighbors(coords);
-                        int gridsToAdd = Mathf.Min(gridsPerHotspot - 1, neighbors.Count);
-                        var shuffledNeighbors = neighbors.OrderBy(x => Random.value).Take(gridsToAdd).ToList();
-                        
-                        foreach (var neighbor in shuffledNeighbors)
+                        if (claimedCoords.Contains(coords)) continue;
+
+                        var group = BuildContiguousHotspotGroup(coords, gridsPerHotspot, claimedCoords, null);
+                        if (group.Count == 0) continue;
+
+                        foreach (var c in group)
                         {
-                            hotspotGroup.Add(neighbor.Coordinates);
-                            hexGrid.SetFertile(neighbor.Coordinates, true);
+                            hexGrid.SetFertile(c, true);
                         }
-                        
-                        hotspotGroups.Add(hotspotGroup);
+
+                        hotspotGroups.Add(group);
                     }
                 }
             }
@@ -1847,7 +2077,8 @@ namespace Verrarium.Core
             {
                 // Tạo n hotspot, mỗi hotspot là gridsPerHotspot grid liền kề
                 var allCells = hexGrid.GetAllCells();
-                var availableCells = new List<HexCell>(allCells);
+                var availableCells = new List<HexCell>(allCells.Where(c => c != null && !c.isObstacle));
+                var availableCoords = new HashSet<HexCoordinates>(availableCells.Select(c => c.Coordinates));
                 int hotspotsCreated = 0;
                 int maxAttempts = numberOfHotspots * 200; // Giới hạn số lần thử
                 int attempts = 0;
@@ -1859,6 +2090,12 @@ namespace Verrarium.Core
                     // Chọn ngẫu nhiên một cell làm center của hotspot
                     HexCell candidateCell = availableCells[Random.Range(0, availableCells.Count)];
                     HexCoordinates candidateCoord = candidateCell.Coordinates;
+                    if (!availableCoords.Contains(candidateCoord) || claimedCoords.Contains(candidateCoord))
+                    {
+                        availableCells.Remove(candidateCell);
+                        availableCoords.Remove(candidateCoord);
+                        continue;
+                    }
                     
                     // Kiểm tra khoảng cách với các hotspot đã tạo (tính từ center của group)
                     bool tooClose = false;
@@ -1879,33 +2116,35 @@ namespace Verrarium.Core
                     // Nếu đủ xa, tạo hotspot group với gridsPerHotspot grid
                     if (!tooClose)
                     {
-                        List<HexCoordinates> newHotspotGroup = new List<HexCoordinates> { candidateCoord };
-                        hexGrid.SetFertile(candidateCoord, true);
-                        availableCells.Remove(candidateCell);
-                        
-                        // Thêm các grid lân cận để tạo group
-                        var neighbors = hexGrid.GetNeighbors(candidateCoord);
-                        int gridsToAdd = Mathf.Min(gridsPerHotspot - 1, neighbors.Count);
-                        var shuffledNeighbors = neighbors.OrderBy(x => Random.value).Take(gridsToAdd).ToList();
-                        
-                        foreach (var neighbor in shuffledNeighbors)
+                        var group = BuildContiguousHotspotGroup(candidateCoord, gridsPerHotspot, claimedCoords, availableCoords);
+                        if (group.Count == 0)
                         {
-                            newHotspotGroup.Add(neighbor.Coordinates);
-                            hexGrid.SetFertile(neighbor.Coordinates, true);
-                            var cellToRemove = availableCells.FirstOrDefault(c => c.Coordinates == neighbor.Coordinates);
-                            if (cellToRemove != null)
-                            {
-                                availableCells.Remove(cellToRemove);
-                            }
+                            availableCells.Remove(candidateCell);
+                            availableCoords.Remove(candidateCoord);
+                            continue;
                         }
-                        
-                        hotspotGroups.Add(newHotspotGroup);
+
+                        // Nếu không build đủ size, vẫn tạo group nhưng log để dễ debug tuning
+                        if (group.Count < gridsPerHotspot)
+                        {
+                            Debug.LogWarning($"Hotspot group tại {candidateCoord} chỉ tạo được {group.Count}/{gridsPerHotspot} grids (có thể do obstacle/đã bị claim/không đủ không gian).");
+                        }
+
+                        foreach (var c in group)
+                        {
+                            hexGrid.SetFertile(c, true);
+                            availableCoords.Remove(c);
+                        }
+                        availableCells.RemoveAll(c => c != null && !availableCoords.Contains(c.Coordinates));
+
+                        hotspotGroups.Add(group);
                         hotspotsCreated++;
                     }
                     else
                     {
                         // Xóa candidate cell khỏi danh sách để không thử lại
                         availableCells.Remove(candidateCell);
+                        availableCoords.Remove(candidateCoord);
                     }
                 }
                 
@@ -1914,6 +2153,71 @@ namespace Verrarium.Core
                     Debug.LogWarning($"Chỉ tạo được {hotspotsCreated}/{numberOfHotspots} hotspot do không đủ không gian với khoảng cách tối thiểu {minHotspotDistance}");
                 }
             }
+
+            RebuildHotspotIndex();
+        }
+
+        /// <summary>
+        /// Tạo một hotspot group gồm tối đa <paramref name="targetSize"/> hex liền kề, bắt đầu từ seed.
+        /// - Tránh trùng lặp thông qua claimedCoords.
+        /// - Nếu availableCoords != null, chỉ chọn trong tập availableCoords (dùng cho random hotspot generation).
+        /// - Bỏ qua cell obstacle.
+        /// </summary>
+        private List<HexCoordinates> BuildContiguousHotspotGroup(
+            HexCoordinates seed,
+            int targetSize,
+            HashSet<HexCoordinates> claimedCoords,
+            HashSet<HexCoordinates> availableCoords
+        )
+        {
+            List<HexCoordinates> group = new List<HexCoordinates>();
+            if (hexGrid == null) return group;
+            if (targetSize <= 0) return group;
+            if (claimedCoords == null) return group;
+
+            HexCell seedCell = hexGrid.GetCell(seed);
+            if (seedCell == null || seedCell.isObstacle) return group;
+            if (claimedCoords.Contains(seed)) return group;
+            if (availableCoords != null && !availableCoords.Contains(seed)) return group;
+
+            // BFS-like random expansion
+            var frontier = new List<HexCoordinates> { seed };
+            var inGroup = new HashSet<HexCoordinates>();
+
+            while (frontier.Count > 0 && group.Count < targetSize)
+            {
+                int frontierIndex = Random.Range(0, frontier.Count);
+                HexCoordinates current = frontier[frontierIndex];
+                frontier.RemoveAt(frontierIndex);
+
+                if (inGroup.Contains(current)) continue;
+                if (claimedCoords.Contains(current)) continue;
+                if (availableCoords != null && !availableCoords.Contains(current)) continue;
+
+                HexCell cell = hexGrid.GetCell(current);
+                if (cell == null || cell.isObstacle) continue;
+
+                inGroup.Add(current);
+                group.Add(current);
+                claimedCoords.Add(current);
+
+                if (group.Count >= targetSize) break;
+
+                var neighbors = hexGrid.GetNeighbors(current);
+                // Shuffle-ish: push in random order
+                foreach (var n in neighbors.OrderBy(_ => Random.value))
+                {
+                    if (n == null) continue;
+                    HexCoordinates nc = n.Coordinates;
+                    if (inGroup.Contains(nc)) continue;
+                    if (claimedCoords.Contains(nc)) continue;
+                    if (availableCoords != null && !availableCoords.Contains(nc)) continue;
+                    if (n.isObstacle) continue;
+                    frontier.Add(nc);
+                }
+            }
+
+            return group;
         }
 
         /// <summary>
@@ -1943,16 +2247,23 @@ namespace Verrarium.Core
         /// <summary>
         /// Xóa tài nguyên khỏi danh sách
         /// </summary>
-        public void RemoveResource(Resource resource, bool wasConsumed = false)
+        public void RemoveResource(Resource resource, ResourceRemovalReason reason = ResourceRemovalReason.Unknown)
         {
             activeResources.Remove(resource);
             
-            // Nếu tài nguyên bị ăn (consumed), tăng drain counter cho grid chứa nó
-            if (wasConsumed && resource != null && useHexGrid && hexGrid != null)
+            if (resource != null && useHexGrid && hexGrid != null)
             {
                 HexCoordinates gridCoords = hexGrid.WorldToHex(resource.transform.position);
                 HexCell cell = hexGrid.GetCell(gridCoords);
-                if (cell != null)
+
+                // Nếu plant decay trong hotspot: hồi fertility cho chính grid đó
+                if (reason == ResourceRemovalReason.Decayed && resource.Type == ResourceType.Plant)
+                {
+                    RestoreFertilityOnPlantDecay(gridCoords);
+                }
+
+                // Nếu resource bị ăn: tăng drain counter cho grid chứa nó (giữ lại cơ chế cũ)
+                if (reason == ResourceRemovalReason.Consumed && cell != null)
                 {
                     cell.drainCounter++;
                     cell.lastDrainTime = simulationTime;
@@ -2137,9 +2448,12 @@ namespace Verrarium.Core
                     // Try to find existing record by checking LineageLookup
                     // Since LineageId is read-only, we'll create a new record if not found
                     // Note: This is a limitation - we can't restore exact lineage IDs
-                    // Nhưng có thể restore speciesId
-                    int speciesId = creatureData.speciesId >= 0 ? creatureData.speciesId : -1;
-                    lineageRecord = Data.CreatureLineageRegistry.CreateRecord(creatureData.genome, null, speciesId);
+                    // Nhưng có thể restore Genus/Species IDs
+                    int genusId = creatureData.genusId >= 0 ? creatureData.genusId : -1;
+                    int speciesIdInGenus = creatureData.speciesInGenusId >= 0
+                        ? creatureData.speciesInGenusId
+                        : (creatureData.speciesId >= 0 ? creatureData.speciesId : -1);
+                    lineageRecord = Data.CreatureLineageRegistry.CreateRecord(creatureData.genome, null, genusId, speciesIdInGenus);
                 }
 
                 // Spawn creature
@@ -2158,7 +2472,8 @@ namespace Verrarium.Core
                             creatureData.maxEnergy,
                             creatureData.health,
                             creatureData.maturity,
-                            creatureData.age
+                            creatureData.age,
+                            creatureData.offspringCount
                         );
                     }
                 }
@@ -2200,6 +2515,12 @@ namespace Verrarium.Core
                 resourceGrid.Clear();
             if (creatureGrid != null)
                 creatureGrid.Clear();
+
+            // Reset Genus/Species system
+            if (genusSystem != null)
+            {
+                genusSystem.Reset();
+            }
         }
 
         /// <summary>

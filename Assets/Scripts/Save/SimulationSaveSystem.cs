@@ -235,7 +235,7 @@ namespace Verrarium.Save
                 plantsPerSpawn = supervisor.GetPlantsPerSpawn()
             };
 
-            // Lưu creatures
+                // Lưu creatures
             var creatures = supervisor.GetActiveCreatures();
             foreach (var creature in creatures)
             {
@@ -252,7 +252,8 @@ namespace Verrarium.Save
                     health = creature.Health,
                     maxHealth = creature.MaxHealth,
                     maturity = creature.Maturity,
-                    age = creature.Age
+                    age = creature.Age,
+                    offspringCount = creature.OffspringCount
                 };
 
                 var lineage = creature.GetLineageRecord();
@@ -260,6 +261,9 @@ namespace Verrarium.Save
                 {
                     creatureData.lineageId = lineage.LineageId.ToString();
                     creatureData.generationIndex = lineage.GenerationIndex;
+                    creatureData.genusId = lineage.GenusId;
+                    creatureData.speciesInGenusId = lineage.SpeciesId;
+                    // Gán speciesId cũ cùng giá trị speciesInGenusId để tương thích
                     creatureData.speciesId = lineage.SpeciesId;
                 }
 

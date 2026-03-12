@@ -51,7 +51,7 @@ namespace Verrarium.Resources
         public float Consume()
         {
             float energy = energyValue;
-            RemoveFromSupervisor();
+            RemoveFromSupervisor(ResourceRemovalReason.Consumed);
             Destroy(gameObject);
             return energy;
         }
@@ -81,20 +81,20 @@ namespace Verrarium.Resources
             if (isDecaying) return;
             isDecaying = true;
             
-            RemoveFromSupervisor();
+            RemoveFromSupervisor(ResourceRemovalReason.Decayed);
             Destroy(gameObject);
         }
 
         /// <summary>
         /// Xóa resource khỏi supervisor
         /// </summary>
-        private void RemoveFromSupervisor()
+        private void RemoveFromSupervisor(ResourceRemovalReason reason)
         {
             if (isRemovedFromSupervisor) return; // Tránh gọi nhiều lần
             
             if (SimulationSupervisor.Instance != null)
             {
-                SimulationSupervisor.Instance.RemoveResource(this);
+                SimulationSupervisor.Instance.RemoveResource(this, reason);
                 isRemovedFromSupervisor = true;
             }
         }
@@ -102,7 +102,10 @@ namespace Verrarium.Resources
         private void OnDestroy()
         {
             // Đảm bảo xóa khỏi supervisor khi bị destroy
-            RemoveFromSupervisor();
+            if (!isRemovedFromSupervisor)
+            {
+                RemoveFromSupervisor(ResourceRemovalReason.Unknown);
+            }
         }
     }
 

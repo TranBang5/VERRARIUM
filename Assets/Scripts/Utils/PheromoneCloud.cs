@@ -30,7 +30,7 @@ namespace Verrarium.Utils
             spriteRenderer.sortingOrder = -5;
         }
 
-        public void Initialize(Vector2 position, Color color, float strength, System.Action<PheromoneCloud> onRelease)
+        public void Initialize(Vector2 position, Color color, float strength, System.Action<PheromoneCloud> onRelease, float lifetimeSeconds)
         {
             transform.position = position;
 
@@ -39,6 +39,10 @@ namespace Verrarium.Utils
             baseColor.a = Mathf.Clamp01(baseColor.a * Mathf.Lerp(0.4f, 1f, intensity));
 
             age = 0f;
+            if (lifetimeSeconds > 0f)
+            {
+                lifetime = lifetimeSeconds;
+            }
             releaseCallback = onRelease;
             gameObject.SetActive(true);
         }

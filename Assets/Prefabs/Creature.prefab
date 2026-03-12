@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 2676147687525078794}
   - component: {fileID: 4178547279971718937}
   - component: {fileID: 164562768392970675}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: Creature
   m_TagString: creature
   m_Icon: {fileID: 0}
@@ -142,8 +142,8 @@ SpriteRenderer:
   m_AutoUVMaxAngle: 89
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
+  m_SortingLayerID: -683731877
+  m_SortingLayer: 2
   m_SortingOrder: 0
   m_Sprite: {fileID: -8045145752945793311, guid: 7c272703e39eb3943bfe6530f81159bc, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
@@ -170,3 +170,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Verrarium.Creature.CreatureController
   baseMetabolicRate: 1
   movementEnergyCost: 0.5
+  agingStartMaturity: 0.99
+  agingDamageRate: 0.3
+  starvationThreshold: 0.25
+  starvationDamageRate: 6
+  trampleVelocityThreshold: 1
+  trampleDamageBase: 5
+  selfTrampleDamageFactor: 0.3

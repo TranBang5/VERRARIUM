@@ -63,9 +63,15 @@ namespace Verrarium.Save
         public float age;
         public float lastEatTime;
         public float lastReproduceTime;
+        // Evolution stats
+        public int offspringCount;
         public string lineageId;
         public int generationIndex;
-        public int speciesId = -1; // Species ID (-1 = chưa phân loại)
+        // Genus / Species phân cấp
+        public int genusId = -1;           // Genus ID (-1 = chưa phân loại)
+        public int speciesInGenusId = -1;  // Species ID trong Genus (-1 = chưa phân loại)
+        // Trường cũ giữ lại để tương thích (được gán cùng giá trị speciesInGenusId)
+        public int speciesId = -1;
     }
 
     /// <summary>

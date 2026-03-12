@@ -9,10 +9,10 @@ TagManager:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Resources
   - Water
   - UI
-  - 
+  - Creatures
   - 
   - 
   - 
@@ -41,6 +41,12 @@ TagManager:
   m_SortingLayers:
   - name: Default
     uniqueID: 0
+    locked: 0
+  - name: Resources
+    uniqueID: 3881492691
+    locked: 0
+  - name: Creatures
+    uniqueID: 3611235419
     locked: 0
   m_RenderingLayers:
   - Default

@@ -1471,8 +1471,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 13.758}
+  m_SizeDelta: {x: 0, y: 27.517}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &231205848
 MonoBehaviour:
@@ -1761,7 +1761,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: GENOME / STATS
+  m_text: BODY PHENOTYPE
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -2513,6 +2513,51 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 435100880}
   m_CullTransparentMesh: 1
+--- !u!1 &443436697
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 443436699}
+  - component: {fileID: 443436698}
+  m_Layer: 0
+  m_Name: Grid
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!156049354 &443436698
+Grid:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 443436697}
+  m_Enabled: 1
+  m_CellSize: {x: 0.8659766, y: 1, z: 1}
+  m_CellGap: {x: 0, y: 0, z: 0}
+  m_CellLayout: 1
+  m_CellSwizzle: 2
+--- !u!4 &443436699
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 443436697}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 1689857018}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &460556301
 GameObject:
   m_ObjectHideFlags: 0
@@ -3763,7 +3808,7 @@ MonoBehaviour:
   m_Intensity: 1
   m_LightVolumeIntensity: 1
   m_LightVolumeEnabled: 0
-  m_ApplyToSortingLayers: 00000000
+  m_ApplyToSortingLayers: 00000000d3e05ae75b143fd7
   m_LightCookieSprite: {fileID: 0}
   m_DeprecatedPointLightCookieSprite: {fileID: 0}
   m_LightOrder: 0
@@ -3888,7 +3933,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: BRAIN / PHENOTYPE
+  m_text: BRAIN PHENOTYPE
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -5550,8 +5595,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 313.273, y: -150.169}
-  m_SizeDelta: {x: 626.545, y: 300.337}
+  m_AnchoredPosition: {x: 313.273, y: -193.102}
+  m_SizeDelta: {x: 626.545, y: 214.471}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &878148764
 MonoBehaviour:
@@ -6334,8 +6379,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -247.33606, y: -150.17}
-  m_SizeDelta: {x: 494.672, y: 300.34}
+  m_AnchoredPosition: {x: -247.33606, y: -193.1}
+  m_SizeDelta: {x: 494.672, y: 214.47}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1012588204
 MonoBehaviour:
@@ -6505,9 +6550,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6aec29e6714b2284fbb61683e518434a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Verrarium.World.HexGrid
-  gridWidth: 50
-  gridHeight: 50
-  hexSize: 2
+  gridWidth: 100
+  gridHeight: 100
+  hexSize: 1
   gridOffset: {x: 0, y: 0}
   showGrid: 1
   gridColor: {r: 1, g: 1, b: 1, a: 0.2}
@@ -7722,34 +7767,35 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e3af7c976870e154780ec183a00d0209, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Verrarium.Core.SimulationSupervisor
-  targetPopulationSize: 400
-  maxPopulationSize: 600
+  targetPopulationSize: 700
+  maxPopulationSize: 1000
   creaturePrefab: {fileID: 7206632933255935328, guid: 226a852cb4ccfa4489a90e370ab1131b, type: 3}
   eggPrefab: {fileID: 5149547163793781786, guid: 008d580af5ff6974a88c57798406abe6, type: 3}
   plantPrefab: {fileID: 8780977596621055720, guid: 64f8972f03ab37e4587f5807491bea97, type: 3}
   meatPrefab: {fileID: 4565611464628917305, guid: 903af74ac858a9241ba80490be56bfc3, type: 3}
-  resourceSpawnInterval: 1
-  resourcesPerSpawn: 10
+  resourceSpawnInterval: 15
+  resourcesPerSpawn: 2
   initialResources: 1000
   resourceDecayTime: 120
   minResourceDistance: 0.2
   maxResources: 4000
-  plantsPerSpawn: 30
+  plantsPerSpawn: 2
   resourceSpawnPopulationThreshold: 1
-  hotspotFertilityRate: 0.5
-  normalFertilityRate: 0.3
-  hotspotFertilityLevel: 10
-  normalFertilityLevel: 5
-  globalFertilityRateMultiplier: 1
-  baseRecoveryInterval: 10
-  emptyGridRecoveryMultiplier: 15
-  recoveryIntervalRandomness: 1.5
-  hotspotMaxCapacity: 15
-  normalGridMaxCapacity: 10
-  numberOfHotspots: 5
-  gridsPerHotspot: 4
-  minHotspotDistance: 20
-  drainDecayInterval: 20
+  hotspotInitialFertilityPerGrid: 20
+  hotspotMaxFertilityPerGrid: 30
+  hotspotMaxResourcesPerGrid: 10
+  hotspotPlantsPerSpawnPerGrid: 2
+  enableFertilityTimeRecovery: 1
+  fertilityRecoveryIntervalSeconds: 20
+  fertilityRecoveryIntervalRandomness: 0.5
+  fertilityRecoveryAmount: 2
+  plantDecayFertilityRestoreAmount: 1
+  creatureDeathFertilityRestoreMin: 1
+  creatureDeathFertilityRestoreMax: 3
+  numberOfHotspots: 4
+  gridsPerHotspot: 500
+  minHotspotDistance: 40
+  drainDecayInterval: 180
   worldSize: {x: 500, y: 500}
   worldBounds: {fileID: 0}
   enableWorldBorder: 0
@@ -7757,9 +7803,17 @@ MonoBehaviour:
   hexGrid: {fileID: 1030265643}
   borderThickness: 2
   enablePheromones: 1
+  spawnCreaturesNearHotspots: 1
+  hotspotSpawnRadiusCells: 2
+  minCreatureSpawnDistance: 0.5
+  creatureSpawnAttemptsPerCreature: 25
   fertileAreas: []
   enableAutosave: 1
   autosaveInterval: 600
+  enableWarmupPhase: 1
+  warmupDuration: 40
+  warmupResourceInterval: 1
+  loadTempSaveOnStart: 0
   enableSpeciation: 1
 --- !u!4 &1248713986
 Transform:
@@ -8938,6 +8992,7 @@ RectTransform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
+  - {fileID: 1967100685}
   - {fileID: 516721874}
   - {fileID: 1339603792}
   m_Father: {fileID: 2006163459}
@@ -11003,6 +11058,132 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1644054365}
   m_CullTransparentMesh: 1
+--- !u!1 &1689857017
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1689857018}
+  - component: {fileID: 1689857020}
+  - component: {fileID: 1689857019}
+  m_Layer: 0
+  m_Name: Tilemap
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1689857018
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1689857017}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 443436699}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!483693784 &1689857019
+TilemapRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1689857017}
+  m_Enabled: 1
+  m_CastShadows: 0
+  m_ReceiveShadows: 0
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 0
+  m_ReflectionProbeUsage: 0
+  m_RayTracingMode: 0
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: a97c105638bdf8b4a8650670310a4cd3, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 0
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_ChunkSize: {x: 32, y: 32, z: 32}
+  m_ChunkCullingBounds: {x: 0, y: 0, z: 0}
+  m_MaxChunkCount: 16
+  m_MaxFrameAge: 16
+  m_SortOrder: 0
+  m_Mode: 0
+  m_DetectChunkCullingBounds: 0
+  m_MaskInteraction: 0
+--- !u!1839735485 &1689857020
+Tilemap:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1689857017}
+  m_Enabled: 1
+  m_Tiles: {}
+  m_AnimatedTiles: {}
+  m_TileAssetArray: []
+  m_TileSpriteArray: []
+  m_TileMatrixArray: []
+  m_TileColorArray: []
+  m_TileObjectToInstantiateArray: []
+  m_AnimationFrameRate: 1
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Origin: {x: 0, y: 0, z: 0}
+  m_Size: {x: 0, y: 0, z: 1}
+  m_TileAnchor: {x: 0, y: 0, z: 0}
+  m_TileOrientation: 0
+  m_TileOrientationMatrix:
+    e00: 1
+    e01: 0
+    e02: 0
+    e03: 0
+    e10: 0
+    e11: 1
+    e12: 0
+    e13: 0
+    e20: 0
+    e21: 0
+    e22: 1
+    e23: 0
+    e30: 0
+    e31: 0
+    e32: 0
+    e33: 1
 --- !u!1 &1701369698
 GameObject:
   m_ObjectHideFlags: 0
@@ -13160,17 +13341,17 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1967100684}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 517505939}
-  m_Father: {fileID: 2006163459}
+  m_Father: {fileID: 1384982313}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: -251.05025}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1967100686
@@ -13432,7 +13613,6 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1384982313}
-  - {fileID: 1967100685}
   - {fileID: 619357126}
   - {fileID: 1424410454}
   - {fileID: 1943861591}
@@ -13843,3 +14023,4 @@ SceneRoots:
   - {fileID: 2006163459}
   - {fileID: 213710888}
   - {fileID: 72106558}
+  - {fileID: 443436699}

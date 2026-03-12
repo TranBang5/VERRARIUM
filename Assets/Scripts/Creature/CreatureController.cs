@@ -48,11 +48,13 @@ namespace Verrarium.Creature
         [SerializeField] private float trampleVelocityThreshold = 1.0f; // Ngưỡng tốc độ tối thiểu để gây trample damage lên sinh vật khác
         [SerializeField] private float trampleDamageBase = 5f;          // Hệ số sát thương cơ bản khi giẫm lên sinh vật khác
         [SerializeField] private float selfTrampleDamageFactor = 0.3f;  // Tỷ lệ sát thương phản lại chính mình khi va chạm mạnh
+        [SerializeField, Min(0f)] private float trampleInvincibilitySeconds = 0.25f; // I-frame sau khi bị va chạm (trample), tránh bị trừ máu liên tục
+        private float lastTrampleDamageTime = -999f;
 
         [Header("Neural Network")]
         private NEATNetwork brain;
-        // 10 đầu vào cơ bản + 3 đầu vào pheromone (R,G,B)
-        private const int INPUT_COUNT = 13;
+        // 10 đầu vào cơ bản + 3 đầu vào pheromone (R,G,B) + 1 đầu vào grayscale màu sinh vật gần nhất
+        private const int INPUT_COUNT = 14;
         // 7 output hành vi cơ bản + 1 output thả pheromone
         private const int OUTPUT_COUNT = 8;
 
@@ -78,6 +80,12 @@ namespace Verrarium.Creature
         private float lastReproduceTime = 0f;
         private float lastPheromoneEmitTime = 0f;
 
+        [Header("Evolution Stats")]
+        // Tổng năng lượng đã ăn được trong suốt vòng đời (dùng cho proxy fitness)
+        private float totalEnergyGained = 0f;
+        // Số con đã sinh ra (offspring count)
+        private int offspringCount = 0;
+
         private void Awake()
         {
             rb = GetComponent<Rigidbody2D>();
@@ -98,11 +106,17 @@ namespace Verrarium.Creature
         public void Initialize(Genome initialGenome, NEATNetwork initialBrain = null)
         {
             genome = initialGenome;
+
+            // Backward-compat: save cũ chưa có brainMutationRate -> mặc định theo mutationRate
+            if (genome.brainMutationRate <= 0f)
+                genome.brainMutationRate = genome.mutationRate;
             
             // Khởi tạo hoặc sao chép bộ não
             if (initialBrain != null)
             {
-                brain = new NEATNetwork(initialBrain);
+                // Dùng trực tiếp instance được truyền vào để speciation/fitnessMap cùng tham chiếu.
+                // (Bản thân quá trình sinh sản đã clone từ parentBrain trước khi truyền vào.)
+                brain = initialBrain;
             }
             else
             {
@@ -246,7 +260,7 @@ namespace Verrarium.Creature
         }
 
         /// <summary>
-        /// Thu thập thông tin cảm giác - tất cả các đầu vào theo Bảng 2
+        /// Thu thập thông tin cảm giác - tất cả các đầu vào theo Bảng 2 (mở rộng với grayscale sinh vật gần nhất)
         /// </summary>
         private void Sense()
         {
@@ -338,7 +352,20 @@ namespace Verrarium.Creature
                 neuralInputs[index++] = 0f;
             }
 
-            // 10-12: Pheromone strengths (Red, Green, Blue) tại vùng "miệng" của sinh vật
+            // 10: Grayscale màu của sinh vật gần nhất [0.0, 1.0]
+            if (closestCreature != null)
+            {
+                var otherGenome = closestCreature.GetGenome();
+                Color otherColor = otherGenome.color;
+                float gray = 0.299f * otherColor.r + 0.587f * otherColor.g + 0.114f * otherColor.b;
+                neuralInputs[index++] = Mathf.Clamp01(gray);
+            }
+            else
+            {
+                neuralInputs[index++] = 0f;
+            }
+
+            // 11-13: Pheromone strengths (Red, Green, Blue) tại vùng "miệng" của sinh vật
             if (SimulationSupervisor.Instance.EnablePheromones && SimulationSupervisor.Instance.HexGrid != null)
             {
                 // Vị trí cảm biến pheromone đặt gần miệng (phía trước thân)
@@ -361,13 +388,24 @@ namespace Verrarium.Creature
 
         /// <summary>
         /// Tính toán Neural Network - kích hoạt mạng với các đầu vào cảm giác
+        /// Hỗ trợ tương thích với các bộ não cũ có inputCount nhỏ hơn (ví dụ save cũ).
         /// </summary>
         private void Think()
         {
             if (brain == null) return;
 
+            // Chuẩn bị mảng input phù hợp với brain.InputCount để tránh lỗi khi load save cũ
+            int brainInputCount = brain.InputCount;
+            float[] inputsForBrain = new float[brainInputCount];
+            int copyCount = Mathf.Min(brainInputCount, neuralInputs.Length);
+            for (int i = 0; i < copyCount; i++)
+            {
+                inputsForBrain[i] = neuralInputs[i];
+            }
+            // Nếu brain mong đợi nhiều input hơn mảng hiện tại, các vị trí còn lại giữ giá trị 0
+
             // Tính toán đầu ra từ mạng nơ-ron
-            float[] outputs = brain.Compute(neuralInputs);
+            float[] outputs = brain.Compute(inputsForBrain);
 
             // Gán các đầu ra (theo thứ tự trong Bảng 2)
             accelerateOutput = outputs[0];                // [0.0, 1.0]
@@ -482,13 +520,9 @@ namespace Verrarium.Creature
             if (canEat)
             {
                 float energyGained = targetResource.Consume();
-                energy = Mathf.Min(maxEnergy, energy + energyGained);
+            energy = Mathf.Min(maxEnergy, energy + energyGained);
+            totalEnergyGained += energyGained;
                 lastEatTime = Time.time;
-
-                if (SimulationSupervisor.Instance != null)
-                {
-                    SimulationSupervisor.Instance.RemoveResource(targetResource, wasConsumed: true);
-                }
 
                 // Cập nhật references
                 if (targetResource == closestPlant) closestPlant = null;
@@ -557,6 +591,7 @@ namespace Verrarium.Creature
             {
                 Vector2 eggPosition = (Vector2)transform.position + Random.insideUnitCircle * 1f;
                 SimulationSupervisor.Instance.OnCreatureReproduction(this, eggPosition, genome);
+                offspringCount++;
             }
         }
 
@@ -748,6 +783,10 @@ namespace Verrarium.Creature
             if (amount <= 0f || currentHealth <= 0f)
                 return;
 
+            if (trampleInvincibilitySeconds > 0f && Time.time - lastTrampleDamageTime < trampleInvincibilitySeconds)
+                return;
+
+            lastTrampleDamageTime = Time.time;
             currentHealth -= amount;
             if (currentHealth <= 0f)
             {
@@ -780,6 +819,8 @@ namespace Verrarium.Creature
         public float HealthRatio => genome.health > 0 ? currentHealth / genome.health : 0f;
         public void SetLineageRecord(CreatureLineageRecord record) => lineageRecord = record;
         public CreatureLineageRecord GetLineageRecord() => lineageRecord;
+        public float TotalEnergyGained => totalEnergyGained;
+        public int OffspringCount => offspringCount;
 
         /// <summary>
         /// Set pause state cho creature
@@ -792,13 +833,14 @@ namespace Verrarium.Creature
         /// <summary>
         /// Set state từ save data (dùng cho load game)
         /// </summary>
-        public void SetStateFromSave(float energy, float maxEnergy, float health, float maturity, float age)
+        public void SetStateFromSave(float energy, float maxEnergy, float health, float maturity, float age, int offspringCount = 0)
         {
             this.energy = energy;
             this.maxEnergy = maxEnergy;
             this.currentHealth = health;
             this.maturity = maturity;
             this.age = age;
+            this.offspringCount = Mathf.Max(0, offspringCount);
         }
 
         /// <summary>
@@ -828,8 +870,9 @@ namespace Verrarium.Creature
             Vector2 backward = - (Vector2)transform.right; // Phía sau, ngược với hướng mặt
             Vector2 emitPos = (Vector2)transform.position + backward * (currentSize * 0.8f);
 
-            // Lượng pheromone phát ra mỗi lần phụ thuộc vào kích thước và cường độ output
-            float amount = pheromoneOutput * genome.size;
+            // Lượng pheromone phát ra mỗi lần phụ thuộc vào kích thước, cường độ output và gene pheromoneLifetime
+            float lifetimeFactor = Mathf.Clamp(genome.pheromoneLifetime / 2f, 0.5f, 2f);
+            float amount = pheromoneOutput * genome.size * lifetimeFactor;
             if (amount > 0f)
             {
                 // Ghi pheromone trực tiếp vào HexGrid
@@ -840,7 +883,8 @@ namespace Verrarium.Creature
                 // Hiệu ứng đám mây pheromone mờ tại đuôi sinh vật
                 if (PheromoneEmitCloudManager.Instance != null)
                 {
-                    PheromoneEmitCloudManager.Instance.SpawnCloud(emitPos, genome.pheromoneType, amount);
+                    float cloudLifetime = Mathf.Clamp(genome.pheromoneLifetime, 0.2f, 5f);
+                    PheromoneEmitCloudManager.Instance.SpawnCloud(emitPos, genome.pheromoneType, amount, cloudLifetime);
                 }
             }
         }
