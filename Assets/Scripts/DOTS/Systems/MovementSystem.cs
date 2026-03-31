@@ -48,7 +48,7 @@ namespace Verrarium.DOTS.Systems
                     // Xoay dựa trên neural output
                     if (math.abs(outputs.rotate) > 0.1f)
                     {
-                        float torque = outputs.rotate * 25f;
+                        float torque = outputs.rotate * 15f;
                         velocity.Angular += torque * deltaTime;
                         
                         // Tiêu thụ năng lượng

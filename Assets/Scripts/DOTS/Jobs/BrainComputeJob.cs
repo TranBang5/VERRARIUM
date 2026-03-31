@@ -17,6 +17,11 @@ namespace Verrarium.DOTS.Jobs
         [ReadOnly] public NativeArray<float> neuralInputs; // Flattened: [entity0_input0, entity0_input1, ..., entity1_input0, ...]
         [ReadOnly] public NativeArray<int> inputCounts; // Số lượng input cho mỗi entity
         [ReadOnly] public NativeArray<int> outputCounts; // Số lượng output cho mỗi entity
+
+        // Offsets prefix-sum cho input/output theo từng entity.
+        // (Không được giả định layout cố định entityIndex * count vì input/outputCount có thể khác nhau giữa entity.)
+        [ReadOnly] public NativeArray<int> inputOffsets;
+        [ReadOnly] public NativeArray<int> outputOffsets;
         
         // Brain structure (read-only)
         [ReadOnly] public NativeArray<JobNeuronData> allNeurons; // Tất cả neurons của tất cả entities (structure only)
@@ -25,12 +30,16 @@ namespace Verrarium.DOTS.Jobs
         [ReadOnly] public NativeArray<int> connectionOffsets; // Offset trong allConnections cho mỗi entity
         [ReadOnly] public NativeArray<int> neuronCounts; // Số lượng neurons cho mỗi entity
         [ReadOnly] public NativeArray<int> connectionCounts; // Số lượng connections cho mỗi entity
+        [ReadOnly] public NativeArray<int> outputNeuronOffsets; // Offset output-neuron local index cho mỗi entity
+        [ReadOnly] public NativeArray<int> outputNeuronCounts; // Số output-neuron local index cho mỗi entity
+        [ReadOnly] public NativeArray<int> allOutputNeuronLocalIndices; // Flattened local neuron indices for outputs
         
         // Neuron values (read-write, separate array for mutable values)
+        [NativeDisableParallelForRestriction]
         public NativeArray<float> neuronValues; // Flattened neuron values: [entity0_neuron0, entity0_neuron1, ...]
         
         // Output data (write-only)
-        [WriteOnly] public NativeArray<float> neuralOutputs; // Flattened outputs
+        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<float> neuralOutputs; // Flattened outputs
 
         public void Execute(int entityIndex)
         {
@@ -49,7 +58,7 @@ namespace Verrarium.DOTS.Jobs
             }
 
             // Set input values
-            int inputStartIndex = entityIndex * inputCount;
+            int inputStartIndex = inputOffsets[entityIndex];
             for (int i = 0; i < inputCount; i++)
             {
                 var neuron = allNeurons[neuronOffset + i];
@@ -59,30 +68,20 @@ namespace Verrarium.DOTS.Jobs
                 }
             }
 
-            // Topological sort: Input -> Hidden -> Output
-            // Tính toán theo thứ tự
+            // Topological pass: Input -> Hidden -> Output
             for (int i = 0; i < neuronCount; i++)
             {
                 var neuron = allNeurons[neuronOffset + i];
                 if (neuron.type == 0) continue; // Skip input neurons (already set)
 
-                // Tính tổng từ các connections đến neuron này
+                // Tính tổng từ các connections đi vào neuron local index i.
                 float sum = 0f;
                 for (int j = 0; j < connectionCount; j++)
                 {
                     var connection = allConnections[connectionOffset + j];
-                    if (!connection.enabled || connection.toNeuronId != neuron.id) continue;
-
-                    // Tìm from neuron
-                    for (int k = 0; k < neuronCount; k++)
-                    {
-                        var fromNeuron = allNeurons[neuronOffset + k];
-                        if (fromNeuron.id == connection.fromNeuronId)
-                        {
-                            sum += neuronValues[valueOffset + k] * connection.weight;
-                            break;
-                        }
-                    }
+                    if (!connection.enabled || connection.toNeuronLocalIndex != i) continue;
+                    if (connection.fromNeuronLocalIndex < 0 || connection.fromNeuronLocalIndex >= neuronCount) continue;
+                    sum += neuronValues[valueOffset + connection.fromNeuronLocalIndex] * connection.weight;
                 }
 
                 // Áp dụng activation function
@@ -90,20 +89,17 @@ namespace Verrarium.DOTS.Jobs
                 neuronValues[valueOffset + i] = Activate(activated, neuron.activationFunction);
             }
 
-            // Lấy output values
-            int outputStartIndex = entityIndex * outputCount;
-            int outputNeuronStartId = inputCount; // Output neurons start after input neurons
-            for (int i = 0; i < outputCount; i++)
+            // Lấy output values theo mapping local index đã precompute ở collect phase.
+            int outputStartIndex = outputOffsets[entityIndex];
+            int outputLocalStart = outputNeuronOffsets[entityIndex];
+            int mappedOutputCount = outputNeuronCounts[entityIndex];
+            int finalOutputCount = math.min(outputCount, mappedOutputCount);
+            for (int i = 0; i < finalOutputCount; i++)
             {
-                int outputNeuronId = outputNeuronStartId + i;
-                for (int j = 0; j < neuronCount; j++)
+                int localNeuronIndex = allOutputNeuronLocalIndices[outputLocalStart + i];
+                if (localNeuronIndex >= 0 && localNeuronIndex < neuronCount)
                 {
-                    var neuron = allNeurons[neuronOffset + j];
-                    if (neuron.id == outputNeuronId && neuron.type == 2) // Output neuron
-                    {
-                        neuralOutputs[outputStartIndex + i] = neuronValues[valueOffset + j];
-                        break;
-                    }
+                    neuralOutputs[outputStartIndex + i] = neuronValues[valueOffset + localNeuronIndex];
                 }
             }
         }
@@ -149,6 +145,8 @@ namespace Verrarium.DOTS.Jobs
         public int innovationNumber;
         public int fromNeuronId;
         public int toNeuronId;
+        public int fromNeuronLocalIndex;
+        public int toNeuronLocalIndex;
         public float weight;
         public bool enabled;
     }

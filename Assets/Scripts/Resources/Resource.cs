@@ -1,5 +1,6 @@
 using UnityEngine;
 using Verrarium.Core;
+using System;
 
 namespace Verrarium.Resources
 {
@@ -17,9 +18,15 @@ namespace Verrarium.Resources
         private float spawnTime = 0f;
         private bool isDecaying = false;
         private bool isRemovedFromSupervisor = false;
+        private Action<Resource> onDespawnRequested;
 
         public float EnergyValue => energyValue;
         public ResourceType Type => resourceType;
+
+        public void SetDespawnHandler(Action<Resource> handler)
+        {
+            onDespawnRequested = handler;
+        }
 
         private void Awake()
         {
@@ -52,7 +59,14 @@ namespace Verrarium.Resources
         {
             float energy = energyValue;
             RemoveFromSupervisor(ResourceRemovalReason.Consumed);
-            Destroy(gameObject);
+            if (onDespawnRequested != null)
+            {
+                onDespawnRequested(this);
+            }
+            else
+            {
+                Destroy(gameObject);
+            }
             return energy;
         }
 
@@ -82,7 +96,14 @@ namespace Verrarium.Resources
             isDecaying = true;
             
             RemoveFromSupervisor(ResourceRemovalReason.Decayed);
-            Destroy(gameObject);
+            if (onDespawnRequested != null)
+            {
+                onDespawnRequested(this);
+            }
+            else
+            {
+                Destroy(gameObject);
+            }
         }
 
         /// <summary>
@@ -106,6 +127,14 @@ namespace Verrarium.Resources
             {
                 RemoveFromSupervisor(ResourceRemovalReason.Unknown);
             }
+        }
+
+        private void OnEnable()
+        {
+            // Reset runtime flags để object có thể được tái sử dụng từ pool.
+            isDecaying = false;
+            isRemovedFromSupervisor = false;
+            spawnTime = Time.time;
         }
     }
 

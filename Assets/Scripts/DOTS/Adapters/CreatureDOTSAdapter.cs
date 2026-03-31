@@ -87,6 +87,8 @@ namespace Verrarium.DOTS.Adapters
             // Neural Input/Output Components
             entityManager.AddComponentData(entity, new NeuralInputComponent());
             entityManager.AddComponentData(entity, new NeuralOutputComponent());
+            entityManager.AddComponentData(entity, new NeedsBrainUpdateTag());
+            entityManager.SetComponentEnabled<NeedsBrainUpdateTag>(entity, false);
 
             // Species Component
             entityManager.AddComponentData(entity, new SpeciesComponent

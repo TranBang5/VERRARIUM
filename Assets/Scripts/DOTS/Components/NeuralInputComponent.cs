@@ -7,7 +7,7 @@ namespace Verrarium.DOTS.Components
     /// </summary>
     public struct NeuralInputComponent : IComponentData
     {
-        // 10 inputs theo Bảng 2
+        // Inputs theo Bảng 2 / thứ tự CreatureController (tổng 14)
         public float energyRatio;
         public float maturity;
         public float healthRatio;
@@ -18,6 +18,14 @@ namespace Verrarium.DOTS.Components
         public float angleToClosestMeat;
         public float distToClosestCreature;
         public float angleToClosestCreature;
+
+        // CreatureController index 10: grayscale màu sinh vật gần nhất
+        public float grayscaleClosestCreature;
+
+        // CreatureController index 11-13: pheromone tại miệng (R,G,B)
+        public float pheromoneR;
+        public float pheromoneG;
+        public float pheromoneB;
     }
 }
 

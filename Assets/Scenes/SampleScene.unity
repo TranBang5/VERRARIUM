@@ -7767,24 +7767,32 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e3af7c976870e154780ec183a00d0209, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Verrarium.Core.SimulationSupervisor
-  targetPopulationSize: 700
+  targetPopulationSize: 500
   maxPopulationSize: 1000
   creaturePrefab: {fileID: 7206632933255935328, guid: 226a852cb4ccfa4489a90e370ab1131b, type: 3}
   eggPrefab: {fileID: 5149547163793781786, guid: 008d580af5ff6974a88c57798406abe6, type: 3}
   plantPrefab: {fileID: 8780977596621055720, guid: 64f8972f03ab37e4587f5807491bea97, type: 3}
   meatPrefab: {fileID: 4565611464628917305, guid: 903af74ac858a9241ba80490be56bfc3, type: 3}
-  resourceSpawnInterval: 15
-  resourcesPerSpawn: 2
+  enablePlantPooling: 1
+  initialPlantPoolSize: 128
+  resourceSpawnInterval: 50
+  resourcesPerSpawn: 20
   initialResources: 1000
-  resourceDecayTime: 120
-  minResourceDistance: 0.2
-  maxResources: 4000
+  resourceDecayTime: 300
+  minResourceDistance: 0.1
+  maxResources: 10000
   plantsPerSpawn: 2
   resourceSpawnPopulationThreshold: 1
-  hotspotInitialFertilityPerGrid: 20
+  hotspotInitialFertilityPerGrid: 30
   hotspotMaxFertilityPerGrid: 30
-  hotspotMaxResourcesPerGrid: 10
-  hotspotPlantsPerSpawnPerGrid: 2
+  hotspotMaxResourcesPerGrid: 15
+  hotspotPlantsPerSpawnPerGrid: 4
+  maxPlantSpawnsPerFrame: 20
+  maxQueuedPlantSpawns: 5000
+  decaySpawnBufferSeconds: 0
+  plantDecayTimeJitterPercent: 0.15
+  enableHotspotSpawnDebugLogs: 0
+  hotspotSpawnDebugLogEveryCycles: 1
   enableFertilityTimeRecovery: 1
   fertilityRecoveryIntervalSeconds: 20
   fertilityRecoveryIntervalRandomness: 0.5
@@ -7792,9 +7800,11 @@ MonoBehaviour:
   plantDecayFertilityRestoreAmount: 1
   creatureDeathFertilityRestoreMin: 1
   creatureDeathFertilityRestoreMax: 3
-  numberOfHotspots: 4
-  gridsPerHotspot: 500
-  minHotspotDistance: 40
+  numberOfHotspots: 8
+  gridsPerHotspot: 400
+  minHotspotDistance: 30
+  enableFixedHotspotTestCase: 0
+  fixedHotspotEdgeMargin: 1.5
   drainDecayInterval: 180
   worldSize: {x: 500, y: 500}
   worldBounds: {fileID: 0}
@@ -7811,7 +7821,7 @@ MonoBehaviour:
   enableAutosave: 1
   autosaveInterval: 600
   enableWarmupPhase: 1
-  warmupDuration: 40
+  warmupDuration: 20
   warmupResourceInterval: 1
   loadTempSaveOnStart: 0
   enableSpeciation: 1

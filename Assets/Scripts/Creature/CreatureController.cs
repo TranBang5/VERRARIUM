@@ -33,12 +33,21 @@ namespace Verrarium.Creature
         private float maturity = 0f; // 0 = mới sinh, 1 = trưởng thành
         private float age = 0f;
         private bool isPaused = false;
+        private bool useDotsBrain = false;
 
         [Header("Metabolism")]
         [SerializeField] private float baseMetabolicRate = 0.12f; // Giảm từ 0.2f xuống 0.12f - tiêu thụ ít năng lượng hơn nhiều, sống lâu hơn
         [SerializeField] private float movementEnergyCost = 0.15f; // Giảm từ 0.2f xuống 0.15f - di chuyển ít tốn năng lượng hơn
         [SerializeField] private float agingStartMaturity = 0.99f; // Tăng từ 0.98f lên 0.99f - lão hóa muộn hơn nữa
         [SerializeField] private float agingDamageRate = 0.3f; // Giảm từ 0.5f xuống 0.3f - lão hóa ít sát thương hơn nhiều, sống lâu hơn
+        
+        [Header("Fatigue Settings")]
+        [SerializeField, Tooltip("Tốc độ tích lũy fatigue khi sinh vật lặp lại hành động mạnh (di chuyển/xoay)")] 
+        private float fatigueBuildRate = 0.4f;
+        [SerializeField, Tooltip("Tốc độ hồi phục fatigue khi sinh vật ít/không hành động")] 
+        private float fatigueRecoveryRate = 0.25f;
+        [SerializeField, Tooltip("Mức nhân tối đa cho chi phí năng lượng khi fatigue đạt 1.0")] 
+        private float maxFatigueEnergyMultiplier = 2.5f;
         
         [Header("Starvation")]
         [SerializeField] private float starvationThreshold = 0.25f; // Giảm từ 0.3f xuống 0.25f - cho phép năng lượng thấp hơn trước khi đói
@@ -85,6 +94,9 @@ namespace Verrarium.Creature
         private float totalEnergyGained = 0f;
         // Số con đã sinh ra (offspring count)
         private int offspringCount = 0;
+
+        // Fatigue state
+        private float actionFatigue = 0f; // [0,1] - 0 = không mệt, 1 = mệt tối đa
 
         private void Awake()
         {
@@ -220,21 +232,44 @@ namespace Verrarium.Creature
             // Sense - Thu thập thông tin cảm giác
             Sense();
 
-            // Think - Tính toán Neural Network (có thể skip để tối ưu)
-            if (brainUpdateEnabled)
+            if (useDotsBrain)
             {
-                brainUpdateFrameSkip++;
-                // Update brain mỗi 2-3 frames để giảm tải
-                if (brainUpdateFrameSkip >= 2)
+                // Hybrid DOTS: Act dùng outputs đã compute ở frame trước,
+                // còn inputs sẽ được sync sang ECS để DOTS compute ở frame kế tiếp.
+                DOTSCreatureBrainBridge.Instance.ApplyNeuralOutputsToCreature(this);
+
+                if (brainUpdateEnabled)
                 {
-            Think();
-                    brainUpdateFrameSkip = 0;
-                }
-                else
-                {
-                    // Sử dụng outputs cũ
+                    brainUpdateFrameSkip++;
+                    // Mô phỏng time-slicing kiểu classic: chỉ compute mỗi ~2 frame.
+                    if (brainUpdateFrameSkip >= 2)
+                    {
+                        DOTSCreatureBrainBridge.Instance.CopyNeuralInputsToEntityAndTagForUpdate(this);
+                        brainUpdateFrameSkip = 0;
+                    }
                 }
             }
+            else
+            {
+                // Think - Tính toán Neural Network (có thể skip để tối ưu)
+                if (brainUpdateEnabled)
+                {
+                    brainUpdateFrameSkip++;
+                    // Update brain mỗi 2-3 frames để giảm tải
+                    if (brainUpdateFrameSkip >= 2)
+                    {
+                        Think();
+                        brainUpdateFrameSkip = 0;
+                    }
+                    else
+                    {
+                        // Sử dụng outputs cũ
+                    }
+                }
+            }
+
+            // Cập nhật fatigue dựa trên hành vi hiện tại (di chuyển/xoay)
+            UpdateActionFatigue();
 
             // Act - Thực thi hành động
             Act();
@@ -250,13 +285,53 @@ namespace Verrarium.Creature
         }
 
         /// <summary>
+        /// Cập nhật chỉ số fatigue dựa trên việc sinh vật lặp lại hành vi di chuyển/xoay mạnh liên tục.
+        /// - Nếu accelerate/rotate lớn trong nhiều frame, fatigue tăng dần.
+        /// - Nếu sinh vật ít di chuyển/xoay, fatigue hồi dần về 0.
+        /// Fatigue sau đó được dùng để nhân thêm chi phí năng lượng cho các hành động.
+        /// </summary>
+        private void UpdateActionFatigue()
+        {
+            float dt = Time.fixedDeltaTime;
+
+            // Độ mạnh hành vi hiện tại (0-1): ưu tiên hành vi lặp lại mạnh (xoay/di chuyển liên tục)
+            float movementIntensity = accelerateOutput;
+            float rotationIntensity = Mathf.Abs(rotateOutput);
+            float dominantIntensity = Mathf.Max(movementIntensity, rotationIntensity);
+
+            // Ngưỡng để coi là "đang hoạt động mạnh"
+            const float ACTIVE_THRESHOLD = 0.3f;
+
+            if (dominantIntensity > ACTIVE_THRESHOLD)
+            {
+                float over = dominantIntensity - ACTIVE_THRESHOLD;
+                float scaled = over / (1f - ACTIVE_THRESHOLD); // ~0..1 khi tiến gần 1.0
+                actionFatigue += fatigueBuildRate * scaled * dt;
+            }
+            else
+            {
+                actionFatigue -= fatigueRecoveryRate * dt;
+            }
+
+            actionFatigue = Mathf.Clamp01(actionFatigue);
+        }
+
+        /// <summary>
         /// Update chỉ brain (dùng cho time-slicing)
         /// </summary>
         public void UpdateBrainOnly()
         {
             if (genome.size == 0) return;
             Sense();
-            Think();
+            if (useDotsBrain)
+            {
+                DOTSCreatureBrainBridge.Instance.ApplyNeuralOutputsToCreature(this);
+                DOTSCreatureBrainBridge.Instance.CopyNeuralInputsToEntityAndTagForUpdate(this);
+            }
+            else
+            {
+                Think();
+            }
         }
 
         /// <summary>
@@ -423,20 +498,23 @@ namespace Verrarium.Creature
         /// </summary>
         private void Act()
         {
+            // Hệ số fatigue áp dụng cho chi phí năng lượng các hành động vận động
+            float fatigueEnergyMul = 1f + actionFatigue * Mathf.Max(0f, maxFatigueEnergyMultiplier - 1f);
+
             // Di chuyển
             if (accelerateOutput > 0.1f)
             {
                 Vector2 force = transform.right * accelerateOutput * genome.speed * 2.5f; // Front là bên phải - di chuyển chậm hơn 50%
                 rb.AddForce(force);
-                energy -= movementEnergyCost * Time.fixedDeltaTime;
+                energy -= movementEnergyCost * fatigueEnergyMul * Time.fixedDeltaTime;
             }
 
             // Xoay
             if (Mathf.Abs(rotateOutput) > 0.1f)
             {
-                float torque = rotateOutput * 25f;
+                float torque = rotateOutput * 15f;
                 rb.AddTorque(torque);
-                energy -= movementEnergyCost * 0.5f * Time.fixedDeltaTime;
+                energy -= movementEnergyCost * 0.5f * fatigueEnergyMul * Time.fixedDeltaTime;
             }
 
             // Ăn
@@ -798,6 +876,32 @@ namespace Verrarium.Creature
         /// Lấy bộ não để sao chép khi sinh sản
         /// </summary>
         public NEATNetwork GetBrain() => brain;
+
+        // Bridge API (hybrid DOTS brain)
+        public void SetUseDotsBrain(bool enabled) => useDotsBrain = enabled;
+        public float[] GetNeuralInputs() => neuralInputs;
+
+        public void ApplyNeuralOutputsFromDots(
+            float accelerate,
+            float rotate01,
+            float layEgg,
+            float growth,
+            float heal,
+            float attack,
+            float eat,
+            float pheromoneOutput
+        )
+        {
+            accelerateOutput = accelerate;
+            // Classic rotateOutput = (brain output [0,1] - 0.5) * 2
+            rotateOutput = (rotate01 - 0.5f) * 2f;
+            layEggOutput = layEgg;
+            growthOutput = growth;
+            healOutput = heal;
+            attackOutput = attack;
+            eatOutput = eat;
+            this.pheromoneOutput = pheromoneOutput;
+        }
 
         /// <summary>
         /// Đặt base metabolic rate (dùng cho điều chỉnh từ UI)

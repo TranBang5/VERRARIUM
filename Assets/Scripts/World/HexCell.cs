@@ -29,6 +29,10 @@ namespace Verrarium.World
         public int baseMaxCapacity = 5;          // Số lượng tài nguyên tối đa cơ bản của grid (trước khi áp dụng drain)
         public int drainCounter = 0;              // Số lần tài nguyên bị ăn (giảm maxCapacity)
         public float lastDrainTime = 0f;          // Thời điểm drain counter được tăng lần cuối
+
+        [Header("Creature Pressure")]
+        public float creaturePressure = 0f;       // Áp lực tích lũy từ sinh vật đứng trên ô này
+        public float lastCreaturePressureUpdate = 0f; // Thời điểm cuối cùng cập nhật áp lực
         
         [Header("Visual")]
         public Color cellColor = Color.white;   // Màu sắc để hiển thị

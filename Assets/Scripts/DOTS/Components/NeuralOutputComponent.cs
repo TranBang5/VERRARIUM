@@ -7,7 +7,7 @@ namespace Verrarium.DOTS.Components
     /// </summary>
     public struct NeuralOutputComponent : IComponentData
     {
-        // 7 outputs theo Bảng 2
+        // Outputs theo Bảng 2 / thứ tự CreatureController (tổng 8)
         public float accelerate;
         public float rotate;
         public float layEgg;
@@ -15,6 +15,9 @@ namespace Verrarium.DOTS.Components
         public float heal;
         public float attack;
         public float eat;
+
+        // CreatureController output index 7: điều khiển thả pheromone
+        public float pheromoneOutput;
     }
 }
 
