@@ -78,7 +78,11 @@ namespace Verrarium.Data
         /// Mỗi thuộc tính (size, color, speed, ...) chỉ được đột biến tối đa 1 lần:
         /// chọn ngẫu nhiên numMutationEvents thuộc tính khác nhau và áp dụng đúng 1 đột biến cho từng thuộc tính đó.
         /// </summary>
-        public static Genome Mutate(Genome parent, float mutationStrength = 0.1f, int numMutationEvents = 1)
+        public static Genome Mutate(
+            Genome parent,
+            float mutationStrength = 0.1f,
+            int numMutationEvents = 1,
+            List<int> mutatedTraitIndices = null)
         {
             Genome child = parent;
             const int traitCount = 18; // size, speed, mouthRange, mouthAngleRange, diet, health, growthDuration, growthEnergyThreshold, reproAgeThreshold, reproEnergyThreshold, reproCooldown, visionRange, pheromoneType, pheromoneCooldown, pheromoneLifetime, mutationRate, brainMutationRate, color
@@ -133,6 +137,8 @@ namespace Verrarium.Data
                         }
                         break;
                 }
+
+                mutatedTraitIndices?.Add(indices[k]);
             }
 
             return child;

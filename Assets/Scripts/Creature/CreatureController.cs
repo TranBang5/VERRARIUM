@@ -95,6 +95,24 @@ namespace Verrarium.Creature
         // Số con đã sinh ra (offspring count)
         private int offspringCount = 0;
 
+        [Header("FixedUpdate Optimization")]
+        [SerializeField, Min(1)] private int senseUpdateStride = 2;
+        [SerializeField, Min(1)] private int metabolismUpdateStride = 2;
+        [SerializeField, Min(1)] private int agingUpdateStride = 2;
+        [SerializeField, Min(1)] private int deathCheckStride = 2;
+        private int fixedTickCounter = 0;
+        private int sensePhaseOffset = 0;
+        private int metabolismPhaseOffset = 0;
+        private int agingPhaseOffset = 0;
+        private int deathPhaseOffset = 0;
+        private float metabolismAccumulator = 0f;
+        private float agingAccumulator = 0f;
+        // Stable telemetry identity for save/analysis
+        private int creatureId = -1;
+        private int parentCreatureId = -1;
+        private string genotypeHash = string.Empty;
+        private List<string> mutationAtomIds = new List<string>();
+
         // Fatigue state
         private float actionFatigue = 0f; // [0,1] - 0 = không mệt, 1 = mệt tối đa
 
@@ -110,6 +128,12 @@ namespace Verrarium.Creature
             {
                 spriteRenderer = gameObject.AddComponent<SpriteRenderer>();
             }
+
+            int seed = Mathf.Abs(GetInstanceID());
+            sensePhaseOffset = GetPhaseOffset(seed, senseUpdateStride, 0);
+            metabolismPhaseOffset = GetPhaseOffset(seed, metabolismUpdateStride, 1);
+            agingPhaseOffset = GetPhaseOffset(seed, agingUpdateStride, 2);
+            deathPhaseOffset = GetPhaseOffset(seed, deathCheckStride, 3);
         }
 
         /// <summary>
@@ -227,26 +251,31 @@ namespace Verrarium.Creature
 
             if (genome.size == 0) return; // Chưa được khởi tạo
 
+            fixedTickCounter++;
             age += Time.fixedDeltaTime;
+            metabolismAccumulator += Time.fixedDeltaTime;
+            agingAccumulator += Time.fixedDeltaTime;
 
-            // Sense - Thu thập thông tin cảm giác
-            Sense();
+            // Sense có thể chạy thưa hơn để giảm tải query trên main thread.
+            if (ShouldRunThisTick(senseUpdateStride, sensePhaseOffset))
+            {
+                Sense();
+            }
 
             if (useDotsBrain)
             {
-                // Hybrid DOTS: Act dùng outputs đã compute ở frame trước,
-                // còn inputs sẽ được sync sang ECS để DOTS compute ở frame kế tiếp.
-                DOTSCreatureBrainBridge.Instance.ApplyNeuralOutputsToCreature(this);
-
+                // Hybrid DOTS: gộp apply output + (tuỳ chọn) sync input/tag trong 1 lần bridge call.
                 if (brainUpdateEnabled)
                 {
                     brainUpdateFrameSkip++;
                     // Mô phỏng time-slicing kiểu classic: chỉ compute mỗi ~2 frame.
-                    if (brainUpdateFrameSkip >= 2)
-                    {
-                        DOTSCreatureBrainBridge.Instance.CopyNeuralInputsToEntityAndTagForUpdate(this);
-                        brainUpdateFrameSkip = 0;
-                    }
+                    bool requestBrainCompute = brainUpdateFrameSkip >= 2;
+                    DOTSCreatureBrainBridge.Instance.UpdateCreatureBrainIO(this, requestBrainCompute);
+                    if (requestBrainCompute) brainUpdateFrameSkip = 0;
+                }
+                else
+                {
+                    DOTSCreatureBrainBridge.Instance.UpdateCreatureBrainIO(this, false);
                 }
             }
             else
@@ -275,13 +304,24 @@ namespace Verrarium.Creature
             Act();
 
             // Metabolism - Tiêu thụ năng lượng
-            UpdateMetabolism();
+            if (ShouldRunThisTick(metabolismUpdateStride, metabolismPhaseOffset))
+            {
+                UpdateMetabolism(metabolismAccumulator);
+                metabolismAccumulator = 0f;
+            }
 
             // Lão hóa
-            UpdateAging();
+            if (ShouldRunThisTick(agingUpdateStride, agingPhaseOffset))
+            {
+                UpdateAging(agingAccumulator);
+                agingAccumulator = 0f;
+            }
 
             // Kiểm tra chết
-            CheckDeath();
+            if (ShouldRunThisTick(deathCheckStride, deathPhaseOffset))
+            {
+                CheckDeath();
+            }
         }
 
         /// <summary>
@@ -325,8 +365,7 @@ namespace Verrarium.Creature
             Sense();
             if (useDotsBrain)
             {
-                DOTSCreatureBrainBridge.Instance.ApplyNeuralOutputsToCreature(this);
-                DOTSCreatureBrainBridge.Instance.CopyNeuralInputsToEntityAndTagForUpdate(this);
+                DOTSCreatureBrainBridge.Instance.UpdateCreatureBrainIO(this, true);
             }
             else
             {
@@ -609,18 +648,20 @@ namespace Verrarium.Creature
         }
 
         /// <summary>
-        /// Tăng trưởng
+        /// Tăng trưởng — chỉ khi đủ năng lượng trả phí frame này và đủ dự trữ theo gen.
+        /// Không cho phép trưởng thành nhờ đói (mất máu) khi năng lượng đã cạn.
         /// </summary>
         private void Grow()
         {
+            float growthCost = 1.5f * Time.fixedDeltaTime;
+            float minReserve = Mathf.Min(genome.growthEnergyThreshold, maxEnergy);
+            if (energy < growthCost || energy < minReserve)
+                return;
+
             float growthRate = Time.fixedDeltaTime / genome.growthDuration;
             maturity = Mathf.Min(1f, maturity + growthRate);
-            
-            // Tiêu thụ năng lượng (giảm cost để dễ tăng trưởng hơn)
-            float growthCost = 1.5f * Time.fixedDeltaTime; // Giảm từ 2f xuống 1.5f
             energy -= growthCost;
 
-            // Cập nhật kích thước
             ApplyGenomeToPhysics();
         }
 
@@ -630,9 +671,19 @@ namespace Verrarium.Creature
         private void TryReproduce()
         {
             if (Time.time - lastReproduceTime < genome.reproCooldown) return; // Kiểm tra cooldown từ gen
-            if (age < genome.reproAgeThreshold) return;
-            if (energy < genome.reproEnergyThreshold) return;
-            if (maturity < 0.85f) return; // Tăng từ 0.75f lên 0.85f - phải trưởng thành hơn mới sinh sản
+            bool neutralRun = SimulationSupervisor.Instance != null && SimulationSupervisor.Instance.IsNeutralRunEnabled();
+            if (!neutralRun)
+            {
+                if (age < genome.reproAgeThreshold) return;
+                if (energy < genome.reproEnergyThreshold) return;
+                if (maturity < 0.85f) return; // Tăng từ 0.75f lên 0.85f - phải trưởng thành hơn mới sinh sản
+            }
+            else
+            {
+                // Neutral run: reproduction is not fitness-gated; only stochastic throttling.
+                float p = SimulationSupervisor.Instance.GetNeutralReproductionChancePerAttempt();
+                if (Random.value > Mathf.Clamp01(p)) return;
+            }
 
             // Kiểm tra population limit
             if (SimulationSupervisor.Instance != null)
@@ -659,9 +710,14 @@ namespace Verrarium.Creature
                 }
             }
 
-            // Tiêu thụ năng lượng để sinh sản
-            float reproductionCost = genome.reproEnergyThreshold * 0.6f; // Tăng từ 0.5f lên 0.6f - tốn nhiều năng lượng hơn
-            energy -= reproductionCost;
+            // Tiêu thụ năng lượng để sinh sản — bắt buộc đủ năng lượng thực (không trừ quá rồi nhờ đói trừ máu)
+            float reproductionCost = neutralRun ? 0f : genome.reproEnergyThreshold * 0.6f; // Tăng từ 0.5f lên 0.6f - tốn nhiều năng lượng hơn
+            if (!neutralRun)
+            {
+                if (energy < reproductionCost)
+                    return;
+                energy -= reproductionCost;
+            }
             lastReproduceTime = Time.time;
 
             // Tạo trứng
@@ -730,13 +786,13 @@ namespace Verrarium.Creature
         /// <summary>
         /// Cập nhật trao đổi chất
         /// </summary>
-        private void UpdateMetabolism()
+        private void UpdateMetabolism(float deltaTime)
         {
             // Năng lượng tối đa phụ thuộc vào kích thước
             maxEnergy = genome.size * 100f * (1f + maturity * 0.5f);
 
             // Tiêu thụ năng lượng cơ bản
-            float metabolicCost = baseMetabolicRate * Time.fixedDeltaTime;
+            float metabolicCost = baseMetabolicRate * deltaTime;
             energy -= metabolicCost;
 
             // Giới hạn energy không âm
@@ -746,13 +802,13 @@ namespace Verrarium.Creature
             }
 
             // Tính toán sát thương đói (starvation damage)
-            UpdateStarvation();
+            UpdateStarvation(deltaTime);
         }
 
         /// <summary>
         /// Cập nhật sát thương đói - sinh vật chết nhanh hơn khi thiếu năng lượng
         /// </summary>
-        private void UpdateStarvation()
+        private void UpdateStarvation(float deltaTime)
         {
             if (maxEnergy <= 0f) return;
 
@@ -766,7 +822,7 @@ namespace Verrarium.Creature
                 // Khi energy = starvationThreshold: damage = 0
                 // Damage tăng tuyến tính khi energy giảm
                 float starvationLevel = 1f - (energyRatio / starvationThreshold); // 0 khi ở threshold, 1 khi energy = 0
-                float damage = starvationDamageRate * starvationLevel * Time.fixedDeltaTime;
+                float damage = starvationDamageRate * starvationLevel * deltaTime;
                 
                 currentHealth -= damage;
             }
@@ -776,7 +832,7 @@ namespace Verrarium.Creature
         /// <summary>
         /// Cập nhật lão hóa - Giảm máu khi đã trưởng thành
         /// </summary>
-        private void UpdateAging()
+        private void UpdateAging(float deltaTime)
         {
             if (maturity >= agingStartMaturity)
             {
@@ -785,9 +841,24 @@ namespace Verrarium.Creature
                 // Nếu maturity vượt quá 1 (do float hoặc logic khác), aging càng mạnh
                 if (maturity > 1f) agingFactor = 1f + (maturity - 1f) * 5f; 
                 
-                float damage = agingDamageRate * agingFactor * Time.fixedDeltaTime;
+                float damage = agingDamageRate * agingFactor * deltaTime;
                 currentHealth -= damage;
             }
+        }
+
+        private bool ShouldRunThisTick(int stride, int phaseOffset)
+        {
+            int safeStride = Mathf.Max(1, stride);
+            int safeOffset = Mathf.Clamp(phaseOffset, 0, safeStride - 1);
+            return (fixedTickCounter + safeOffset) % safeStride == 0;
+        }
+
+        private int GetPhaseOffset(int seed, int stride, int salt)
+        {
+            int safeStride = Mathf.Max(1, stride);
+            if (safeStride == 1) return 0;
+            int mixed = seed ^ (salt * 73856093);
+            return Mathf.Abs(mixed) % safeStride;
         }
 
         /// <summary>
@@ -925,6 +996,18 @@ namespace Verrarium.Creature
         public CreatureLineageRecord GetLineageRecord() => lineageRecord;
         public float TotalEnergyGained => totalEnergyGained;
         public int OffspringCount => offspringCount;
+        public int CreatureId => creatureId;
+        public int ParentCreatureId => parentCreatureId;
+        public string GenotypeHash => genotypeHash;
+        public List<string> MutationAtomIds => new List<string>(mutationAtomIds);
+        public float AccelerateOutput => accelerateOutput;
+        public float RotateOutput => rotateOutput;
+        public float LayEggOutput => layEggOutput;
+        public float GrowthOutput => growthOutput;
+        public float HealOutput => healOutput;
+        public float AttackOutput => attackOutput;
+        public float EatOutput => eatOutput;
+        public float PheromoneOutput => pheromoneOutput;
 
         /// <summary>
         /// Set pause state cho creature
@@ -945,6 +1028,18 @@ namespace Verrarium.Creature
             this.maturity = maturity;
             this.age = age;
             this.offspringCount = Mathf.Max(0, offspringCount);
+        }
+
+        public void SetTelemetryIdentity(int creatureId, int parentCreatureId, string genotypeHash)
+        {
+            this.creatureId = creatureId;
+            this.parentCreatureId = parentCreatureId;
+            this.genotypeHash = genotypeHash ?? string.Empty;
+        }
+
+        public void SetMutationAtomIds(List<string> atomIds)
+        {
+            mutationAtomIds = atomIds != null ? new List<string>(atomIds) : new List<string>();
         }
 
         /// <summary>

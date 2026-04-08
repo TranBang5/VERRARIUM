@@ -55,7 +55,8 @@ namespace Verrarium.Save
                 SimulationSaveData saveData = CreateSaveData(saveName, supervisor);
 
                 // Serialize to JSON
-                string json = JsonUtility.ToJson(saveData, true);
+                // Disable pretty-print to reduce peak memory during large autosaves.
+                string json = JsonUtility.ToJson(saveData, false);
 
                 // Lưu file
                 string filePath = GetSaveFilePath(saveName);
@@ -232,7 +233,16 @@ namespace Verrarium.Save
                 targetPopulationSize = supervisor.GetTargetPopulationSize(),
                 maxPopulationSize = supervisor.GetMaxPopulationSize(),
                 resourceSpawnInterval = supervisor.GetResourceSpawnInterval(),
-                plantsPerSpawn = supervisor.GetPlantsPerSpawn()
+                plantsPerSpawn = supervisor.GetPlantsPerSpawn(),
+                enableNeutralRun = supervisor.GetEnableNeutralRun(),
+                enableSeasonSystem = supervisor.GetEnableSeasonSystem(),
+                seasonDuration = supervisor.GetSeasonDuration(),
+                currentSeason = supervisor.GetCurrentSeason(),
+                seasonElapsedTime = supervisor.GetSeasonElapsedTime(),
+                populationSamples = supervisor.GetPopulationSamples(),
+                deathRecords = supervisor.GetDeathRecords(),
+                mutationEvents = supervisor.GetMutationEvents(),
+                innovationActivitySamples = supervisor.GetInnovationActivitySamples()
             };
 
                 // Lưu creatures
@@ -243,6 +253,10 @@ namespace Verrarium.Save
 
                 var creatureData = new CreatureSaveData
                 {
+                    creatureId = creature.CreatureId,
+                    parentCreatureId = creature.ParentCreatureId,
+                    genotypeHash = creature.GenotypeHash,
+                    mutationAtomIds = creature.MutationAtomIds,
                     genome = creature.GetGenome(),
                     brain = CreateBrainSaveData(creature.GetBrain()),
                     position = creature.transform.position,

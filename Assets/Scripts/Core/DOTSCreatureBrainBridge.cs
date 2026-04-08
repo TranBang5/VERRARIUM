@@ -118,15 +118,7 @@ namespace Verrarium.Core
 
         public void SyncNeuralInputsToEntity(CreatureController creature)
         {
-            if (creature == null) return;
-            if (!enableDotsBrain) return;
-
-            EnsureInitialized();
-            if (!initialized) return;
-
-            if (!entitiesByCreature.TryGetValue(creature, out var entity)) return;
-            if (!entityManager.Exists(entity)) return;
-
+            if (!TryGetCreatureEntity(creature, out var entity)) return;
             float[] src = creature.GetNeuralInputs();
             if (src == null || src.Length < 14) return;
 
@@ -153,15 +145,8 @@ namespace Verrarium.Core
 
         public void CopyNeuralInputsToEntityAndTagForUpdate(CreatureController creature)
         {
-            if (creature == null) return;
-            if (!enableDotsBrain) return;
-
+            if (!TryGetCreatureEntity(creature, out var entity)) return;
             SyncNeuralInputsToEntity(creature);
-            EnsureInitialized();
-            if (!initialized) return;
-
-            if (!entitiesByCreature.TryGetValue(creature, out var entity)) return;
-            if (!entityManager.Exists(entity)) return;
 
             // Backward-compat cho entity cũ chưa có tag enableable.
             if (!entityManager.HasComponent<NeedsBrainUpdateTag>(entity))
@@ -187,14 +172,7 @@ namespace Verrarium.Core
 
         public void ApplyNeuralOutputsToCreature(CreatureController creature)
         {
-            if (creature == null) return;
-            if (!enableDotsBrain) return;
-
-            EnsureInitialized();
-            if (!initialized) return;
-
-            if (!entitiesByCreature.TryGetValue(creature, out var entity)) return;
-            if (!entityManager.Exists(entity)) return;
+            if (!TryGetCreatureEntity(creature, out var entity)) return;
 
             NeuralOutputComponent output = entityManager.GetComponentData<NeuralOutputComponent>(entity);
 
@@ -209,6 +187,81 @@ namespace Verrarium.Core
                 output.eat,
                 output.pheromoneOutput
             );
+        }
+
+        public void UpdateCreatureBrainIO(CreatureController creature, bool requestBrainCompute)
+        {
+            if (!TryGetCreatureEntity(creature, out var entity)) return;
+
+            // Apply output trước để Act() dùng ngay trong tick hiện tại.
+            NeuralOutputComponent output = entityManager.GetComponentData<NeuralOutputComponent>(entity);
+            creature.ApplyNeuralOutputsFromDots(
+                output.accelerate,
+                output.rotate,
+                output.layEgg,
+                output.growth,
+                output.heal,
+                output.attack,
+                output.eat,
+                output.pheromoneOutput
+            );
+
+            if (!requestBrainCompute) return;
+
+            float[] src = creature.GetNeuralInputs();
+            if (src == null || src.Length < 14) return;
+
+            NeuralInputComponent input = new NeuralInputComponent
+            {
+                energyRatio = src[0],
+                maturity = src[1],
+                healthRatio = src[2],
+                age = src[3],
+                distToClosestPlant = src[4],
+                angleToClosestPlant = src[5],
+                distToClosestMeat = src[6],
+                angleToClosestMeat = src[7],
+                distToClosestCreature = src[8],
+                angleToClosestCreature = src[9],
+                grayscaleClosestCreature = src[10],
+                pheromoneR = src[11],
+                pheromoneG = src[12],
+                pheromoneB = src[13]
+            };
+            entityManager.SetComponentData(entity, input);
+
+            // Backward-compat cho entity cũ chưa có tag enableable.
+            if (!entityManager.HasComponent<NeedsBrainUpdateTag>(entity))
+            {
+                entityManager.AddComponentData(entity, new NeedsBrainUpdateTag());
+                entityManager.SetComponentEnabled<NeedsBrainUpdateTag>(entity, false);
+            }
+
+            if (Time.frameCount != lastFrameCount)
+            {
+                lastFrameCount = Time.frameCount;
+                brainUpdatesThisFrame = 0;
+            }
+
+            if (!entityManager.IsComponentEnabled<NeedsBrainUpdateTag>(entity) &&
+                brainUpdatesThisFrame < maxBrainUpdatesPerFrame)
+            {
+                entityManager.SetComponentEnabled<NeedsBrainUpdateTag>(entity, true);
+                brainUpdatesThisFrame++;
+            }
+        }
+
+        private bool TryGetCreatureEntity(CreatureController creature, out Entity entity)
+        {
+            entity = Entity.Null;
+            if (creature == null) return false;
+            if (!enableDotsBrain) return false;
+
+            EnsureInitialized();
+            if (!initialized || entityManager == null) return false;
+            if (!entitiesByCreature.TryGetValue(creature, out entity)) return false;
+            if (!entityManager.Exists(entity)) return false;
+            return true;
         }
     }
 }

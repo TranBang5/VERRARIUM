@@ -1,0 +1,1 @@
+information_gain_proxy_r2=0.191682

@@ -1,7 +1,10 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using UnityEngine;
 using Verrarium.Resources;
 using Verrarium.Creature;
@@ -22,6 +25,12 @@ using UnityEngine.InputSystem.Controls;
 
 namespace Verrarium.Core
 {
+    public enum SimulationSeason
+    {
+        A = 0,
+        B = 1
+    }
+
     public enum ResourceRemovalReason
     {
         Unknown = 0,
@@ -86,6 +95,12 @@ namespace Verrarium.Core
         [SerializeField] private int numberOfHotspots = 3; // Số lượng hotspot
         [SerializeField] private int gridsPerHotspot = 1; // Số lượng grid trong mỗi hotspot group
         [SerializeField] private int minHotspotDistance = 5; // Khoảng cách tối thiểu giữa các hotspot (số hex cells)
+        [SerializeField] private List<Transform> fertileAreasSeasonA = new List<Transform>();
+        [SerializeField] private List<Transform> fertileAreasSeasonB = new List<Transform>();
+        
+        [Header("Season Settings")]
+        [SerializeField] private bool enableSeasonSystem = false;
+        [SerializeField, Min(1f)] private float seasonDuration = 120f;
         
         [Header("Hotspot Test Case")]
         [SerializeField] private bool enableFixedHotspotTestCase = false; // Bật để dùng 3 hotspot cố định cho test
@@ -139,6 +154,12 @@ namespace Verrarium.Core
         private List<List<HexCoordinates>> hotspotGroups = new List<List<HexCoordinates>>();
         private Dictionary<HexCoordinates, int> hotspotGroupIndexByCoord = new Dictionary<HexCoordinates, int>();
         private int fixedCaseCenterHotspotGroupIndex = -1;
+        private List<List<HexCoordinates>> hotspotGroupsSeasonA = new List<List<HexCoordinates>>();
+        private List<List<HexCoordinates>> hotspotGroupsSeasonB = new List<List<HexCoordinates>>();
+        private int fixedCaseCenterHotspotGroupIndexSeasonA = -1;
+        private int fixedCaseCenterHotspotGroupIndexSeasonB = -1;
+        private SimulationSeason currentSeason = SimulationSeason.A;
+        private float seasonElapsedTime = 0f;
         private readonly List<HexCell> cachedHotspotResourceCells = new List<HexCell>();
         private bool hotspotResourceCellsDirty = true;
 
@@ -153,6 +174,23 @@ namespace Verrarium.Core
         [SerializeField] private float autosaveInterval = 600f; // 10 phút = 600 giây
         private float lastAutosaveTime = 0f;
 
+        [Header("Metrics Telemetry")]
+        [SerializeField] private bool enableMetricTelemetry = true;
+        [SerializeField, Min(0.5f)] private float metricSampleInterval = 5f;
+        [SerializeField, Min(100)] private int maxPopulationSamples = 5000;
+        [SerializeField, Min(100)] private int maxDeathRecords = 50000;
+        [SerializeField, Min(100)] private int maxMutationEvents = 50000;
+        [SerializeField, Min(100)] private int maxInnovationActivitySamples = 5000;
+        [SerializeField, Min(1)] private int innovationTopKPerSample = 12;
+        [SerializeField, Min(30f)] private float innovationPruneAfterSeconds = 600f;
+        [SerializeField] private bool pruneInnovationWhenAbsent = true;
+        [SerializeField, Min(1f)] private float innovationAdaptiveThresholdL = 50f;
+
+        [Header("Neutral Run")]
+        [SerializeField] private bool enableNeutralRun = false;
+        [SerializeField, Range(0f, 1f)] private float neutralReproductionChancePerAttempt = 0.35f;
+        [SerializeField, Min(0f)] private float neutralCullFractionPerSecond = 0.01f;
+
         [Header("Warmup Settings")]
         [SerializeField] private bool enableWarmupPhase = true; // Bật warmup để spawn tài nguyên trước khi spawn sinh vật
         [SerializeField] private float warmupDuration = 30f;    // Thời gian warmup (giây)
@@ -163,6 +201,20 @@ namespace Verrarium.Core
 
         // Pause state
         private bool isPaused = false;
+        private bool isWarmupInProgress = false;
+        private float nextMetricSampleTime = 0f;
+        private int nextCreatureId = 1;
+        private readonly List<PopulationSampleSaveData> populationSamples = new List<PopulationSampleSaveData>();
+        private readonly List<DeathRecordSaveData> deathRecords = new List<DeathRecordSaveData>();
+        private readonly List<MutationEventSaveData> mutationEvents = new List<MutationEventSaveData>();
+        private readonly List<InnovationActivitySampleSaveData> innovationActivitySamples = new List<InnovationActivitySampleSaveData>();
+        private readonly Dictionary<string, float> innovationActivityById = new Dictionary<string, float>();
+        private readonly Dictionary<string, float> innovationLastSeenById = new Dictionary<string, float>();
+        private float innovationCumulativeActivity = 0f;
+        private float innovationCumulativeAdaptiveActivity = 0f;
+        private readonly Dictionary<int, List<string>> pendingMutationAtomsByLineageId = new Dictionary<int, List<string>>();
+        private float initialResourceSpawnInterval;
+        private int initialPlantsPerSpawnLimit;
         public bool IsPaused => isPaused;
         public bool EnablePheromones => enablePheromones;
         public HexGrid HexGrid => hexGrid;
@@ -177,6 +229,8 @@ namespace Verrarium.Core
             if (Instance == null)
             {
                 Instance = this;
+                initialResourceSpawnInterval = resourceSpawnInterval;
+                initialPlantsPerSpawnLimit = resourcesPerSpawn;
             }
             else
             {
@@ -214,7 +268,6 @@ namespace Verrarium.Core
             if (useHexGrid && hexGrid != null)
             {
                 SetupHexGridFertileAreas();
-                InitializeGridFertility();
             }
 
             // Rebuild spatial grids định kỳ
@@ -222,6 +275,7 @@ namespace Verrarium.Core
             
             // Khởi tạo autosave
             lastAutosaveTime = 0f;
+            nextMetricSampleTime = 0f;
             
             // Khởi tạo drainDecayInterval = 4x resourceSpawnInterval
             if (drainDecayInterval <= 0f)
@@ -266,6 +320,173 @@ namespace Verrarium.Core
             UpdateGridFertilityRestoration();
             UpdateGridCreaturePressure();
             ProcessPendingPlantSpawns();
+            UpdateSeasonCycle();
+            UpdateMetricTelemetry();
+        }
+
+        private void UpdateSeasonCycle()
+        {
+            if (!enableSeasonSystem) return;
+            if (!useHexGrid || hexGrid == null) return;
+            if (seasonDuration <= 0f) return;
+
+            seasonElapsedTime += Time.deltaTime;
+            if (seasonElapsedTime < seasonDuration) return;
+
+            seasonElapsedTime = 0f;
+            SimulationSeason nextSeason = currentSeason == SimulationSeason.A ? SimulationSeason.B : SimulationSeason.A;
+            ApplySeason(nextSeason, true);
+        }
+
+        private void UpdateMetricTelemetry()
+        {
+            if (!enableMetricTelemetry) return;
+            if (simulationTime < nextMetricSampleTime) return;
+
+            nextMetricSampleTime = simulationTime + Mathf.Max(0.5f, metricSampleInterval);
+
+            populationSamples.Add(new PopulationSampleSaveData
+            {
+                simulationTime = simulationTime,
+                currentPopulation = activeCreatures.Count
+            });
+            TrimList(populationSamples, maxPopulationSamples);
+
+            UpdateInnovationActivitySnapshot();
+        }
+
+        private void UpdateInnovationActivitySnapshot()
+        {
+            Dictionary<string, int> carrierCounts = new Dictionary<string, int>();
+            for (int i = 0; i < activeCreatures.Count; i++)
+            {
+                CreatureController creature = activeCreatures[i];
+                if (creature == null) continue;
+                List<string> atoms = creature.MutationAtomIds;
+                if (atoms == null || atoms.Count == 0) continue;
+
+                for (int j = 0; j < atoms.Count; j++)
+                {
+                    string atom = atoms[j];
+                    if (string.IsNullOrEmpty(atom)) continue;
+                    if (!carrierCounts.TryGetValue(atom, out int count))
+                    {
+                        count = 0;
+                    }
+                    carrierCounts[atom] = count + 1;
+                }
+            }
+
+            float dt = Mathf.Max(0.5f, metricSampleInterval);
+            foreach (var kvp in carrierCounts)
+            {
+                string atom = kvp.Key;
+                int carriers = kvp.Value;
+                if (!innovationActivityById.TryGetValue(atom, out float activity))
+                {
+                    activity = 0f;
+                }
+
+                float delta = carriers * dt;
+                activity += delta;
+                innovationActivityById[atom] = activity;
+                innovationLastSeenById[atom] = simulationTime;
+                innovationCumulativeActivity += delta;
+            }
+
+            // Bedau-style active registry pruning: remove innovations absent in current living pool.
+            if (pruneInnovationWhenAbsent)
+            {
+                List<string> absentIds = new List<string>();
+                foreach (var kvp in innovationActivityById)
+                {
+                    if (!carrierCounts.ContainsKey(kvp.Key))
+                    {
+                        absentIds.Add(kvp.Key);
+                    }
+                }
+
+                for (int i = 0; i < absentIds.Count; i++)
+                {
+                    string id = absentIds[i];
+                    innovationActivityById.Remove(id);
+                    innovationLastSeenById.Remove(id);
+                }
+            }
+
+            // Prune atoms that have disappeared for a long time.
+            if (innovationPruneAfterSeconds > 0f)
+            {
+                List<string> staleIds = new List<string>();
+                foreach (var kvp in innovationLastSeenById)
+                {
+                    if (simulationTime - kvp.Value > innovationPruneAfterSeconds)
+                    {
+                        staleIds.Add(kvp.Key);
+                    }
+                }
+
+                for (int i = 0; i < staleIds.Count; i++)
+                {
+                    string id = staleIds[i];
+                    innovationLastSeenById.Remove(id);
+                    innovationActivityById.Remove(id);
+                }
+            }
+
+            InnovationActivitySampleSaveData sample = new InnovationActivitySampleSaveData
+            {
+                simulationTime = simulationTime,
+                diversity = carrierCounts.Count,
+                totalActivityActive = 0f,
+                totalActivityAdaptive = 0f,
+                cumulativeActivityAllTime = innovationCumulativeActivity,
+                cumulativeActivityAdaptive = innovationCumulativeAdaptiveActivity,
+                adaptiveThresholdL = innovationAdaptiveThresholdL,
+                adaptiveInnovationCount = 0
+            };
+
+            foreach (var kvp in carrierCounts)
+            {
+                if (innovationActivityById.TryGetValue(kvp.Key, out float activity))
+                {
+                    sample.totalActivityActive += activity;
+                    if (activity >= innovationAdaptiveThresholdL)
+                    {
+                        sample.totalActivityAdaptive += activity;
+                        sample.adaptiveInnovationCount++;
+                    }
+                }
+            }
+
+            // Running cumulative adaptive activity A_cum^adaptive.
+            innovationCumulativeAdaptiveActivity += sample.totalActivityAdaptive;
+            sample.cumulativeActivityAdaptive = innovationCumulativeAdaptiveActivity;
+
+            var topEntries = carrierCounts
+                .Select(kvp => new InnovationActivityEntrySaveData
+                {
+                    innovationId = kvp.Key,
+                    carrierCount = kvp.Value,
+                    activity = innovationActivityById.TryGetValue(kvp.Key, out float a) ? a : 0f
+                })
+                .OrderByDescending(e => e.activity)
+                .Take(Mathf.Max(1, innovationTopKPerSample))
+                .ToList();
+            sample.topInnovations.AddRange(topEntries);
+
+            innovationActivitySamples.Add(sample);
+            TrimList(innovationActivitySamples, maxInnovationActivitySamples);
+        }
+
+        private static void TrimList<T>(List<T> list, int maxCount)
+        {
+            if (list == null || maxCount <= 0) return;
+            int overflow = list.Count - maxCount;
+            if (overflow > 0)
+            {
+                list.RemoveRange(0, overflow);
+            }
         }
 
         /// <summary>
@@ -366,6 +587,8 @@ namespace Verrarium.Core
         /// </summary>
         private IEnumerator WarmupRoutine()
         {
+            isWarmupInProgress = true;
+
             // Bắt đầu spawn tài nguyên với interval warmup
             InvokeRepeating(nameof(SpawnResources), 1f, warmupResourceInterval);
 
@@ -383,6 +606,7 @@ namespace Verrarium.Core
             // Chuyển sang interval spawn tài nguyên bình thường
             CancelInvoke(nameof(SpawnResources));
             InvokeRepeating(nameof(SpawnResources), resourceSpawnInterval, resourceSpawnInterval);
+            isWarmupInProgress = false;
 
             // Sau khi tài nguyên đã được spawn trước, mới spawn sinh vật
             SpawnInitialCreatures();
@@ -1431,6 +1655,11 @@ namespace Verrarium.Core
                 }
 
                 controller.SetLineageRecord(lineageRecord);
+                int parentCreatureId = ResolveParentCreatureId(lineageRecord);
+                int creatureId = AllocateCreatureId();
+                string genotypeHash = BuildGenotypeHash(genome, controller.GetBrain());
+                controller.SetTelemetryIdentity(creatureId, parentCreatureId, genotypeHash);
+                controller.SetMutationAtomIds(ResolveMutationAtomsForSpawn(controller, lineageRecord));
                 Data.CreatureLineageRegistry.Bind(controller, lineageRecord);
                 activeCreatures.Add(controller);
 
@@ -1454,6 +1683,31 @@ namespace Verrarium.Core
         /// </summary>
         public void OnCreatureDeath(CreatureController creature, Vector2 deathPosition, float size)
         {
+            if (enableMetricTelemetry && creature != null)
+            {
+                var lineage = creature.GetLineageRecord();
+                var brain = creature.GetBrain();
+                deathRecords.Add(new DeathRecordSaveData
+                {
+                    creatureId = creature.CreatureId,
+                    parentCreatureId = creature.ParentCreatureId,
+                    genotypeHash = creature.GenotypeHash,
+                    mutationAtomIds = creature.MutationAtomIds,
+                    birthTime = Mathf.Max(0f, simulationTime - creature.Age),
+                    deathTime = simulationTime,
+                    lifespan = creature.Age,
+                    maturityAtDeath = creature.Maturity,
+                    offspringCount = creature.OffspringCount,
+                    totalEnergyGained = creature.TotalEnergyGained,
+                    neuronCount = brain != null ? brain.NeuronCount : 0,
+                    connectionCount = brain != null ? brain.ConnectionCount : 0,
+                    generationIndex = lineage != null ? lineage.GenerationIndex : -1,
+                    genusId = lineage != null ? lineage.GenusId : -1,
+                    speciesId = lineage != null ? lineage.SpeciesId : -1
+                });
+                TrimList(deathRecords, maxDeathRecords);
+            }
+
             activeCreatures.Remove(creature);
 
             // Hybrid DOTS brain: hủy entity tương ứng
@@ -1505,7 +1759,8 @@ namespace Verrarium.Core
             int numBrainMutations = PoissonRandom(brainLambda);
 
             // Mỗi thuộc tính genome chỉ đột biến tối đa 1 lần: truyền numGenomeMutations vào Mutate để chọn ngẫu nhiên từng ấy thuộc tính khác nhau
-            Genome childGenome = Genome.Mutate(parentGenome, 0.1f, numGenomeMutations);
+            List<int> mutatedTraitIndices = new List<int>();
+            Genome childGenome = Genome.Mutate(parentGenome, 0.1f, numGenomeMutations, mutatedTraitIndices);
 
             // Sao chép và đột biến bộ não
             Evolution.NEATNetwork childBrain = null;
@@ -1522,6 +1777,7 @@ namespace Verrarium.Core
             }
 
             Data.CreatureLineageRecord parentRecord = Data.CreatureLineageRegistry.Get(parent);
+            int parentCreatureId = parent != null ? parent.CreatureId : -1;
             
             // Classify child to Genus/Species (dựa trên GenerationIndex = parent.GenerationIndex + 1)
             int childGenusId = -1;
@@ -1534,6 +1790,26 @@ namespace Verrarium.Core
             
             // Tạo lineage record với Genus/Species ID
             Data.CreatureLineageRecord childRecord = Data.CreatureLineageRegistry.CreateRecord(childGenome, parentRecord, childGenusId, childSpeciesIdInGenus);
+            List<string> childMutationAtoms = BuildChildMutationAtoms(parent, mutatedTraitIndices, numBrainMutations);
+            pendingMutationAtomsByLineageId[childRecord.LineageId] = new List<string>(childMutationAtoms);
+
+            if (enableMetricTelemetry)
+            {
+                string mutationEventId = System.Guid.NewGuid().ToString("N");
+                mutationEvents.Add(new MutationEventSaveData
+                {
+                    mutationId = mutationEventId,
+                    simulationTime = simulationTime,
+                    parentCreatureId = parentCreatureId,
+                    childCreatureId = -1,
+                    parentGenotypeHash = parent != null ? parent.GenotypeHash : string.Empty,
+                    childGenotypeHash = BuildGenotypeHash(childGenome, childBrain),
+                    mutationAtomIds = new List<string>(childMutationAtoms),
+                    genomeMutationCount = numGenomeMutations,
+                    brainMutationCount = numBrainMutations
+                });
+                TrimList(mutationEvents, maxMutationEvents);
+            }
 
             // Sinh trứng thay vì sinh trực tiếp sinh vật
             SpawnEgg(position, childGenome, childBrain, childRecord);
@@ -2319,6 +2595,41 @@ namespace Verrarium.Core
             // Cập nhật đại diện loài dựa trên "fitness" gần đúng nếu đang bật speciation
             // Ở đây dùng Age làm proxy cho fitness: sinh vật sống lâu hơn được coi là phù hợp hơn.
             UpdateSpeciesRepresentativesIfNeeded();
+
+            if (enableNeutralRun)
+            {
+                ApplyNeutralDynamics();
+            }
+        }
+
+        private void ApplyNeutralDynamics()
+        {
+            if (activeCreatures == null || activeCreatures.Count == 0) return;
+            if (neutralCullFractionPerSecond <= 0f) return;
+
+            int currentPopulation = activeCreatures.Count;
+            int target = Mathf.Max(1, targetPopulationSize);
+            if (currentPopulation <= target) return;
+
+            // Random culling independent from fitness.
+            float dt = Mathf.Max(0f, Time.deltaTime);
+            int maxCull = Mathf.FloorToInt(currentPopulation * neutralCullFractionPerSecond * dt);
+            if (maxCull <= 0) return;
+
+            int culled = 0;
+            while (culled < maxCull && activeCreatures.Count > target)
+            {
+                int idx = Random.Range(0, activeCreatures.Count);
+                CreatureController chosen = activeCreatures[idx];
+                if (chosen == null)
+                {
+                    activeCreatures.RemoveAt(idx);
+                    continue;
+                }
+
+                Destroy(chosen.gameObject);
+                culled++;
+            }
         }
 
         /// <summary>
@@ -2439,15 +2750,28 @@ namespace Verrarium.Core
         }
 
         /// <summary>
-        /// Setup fertile areas trên hex grid - tạo n hotspot, mỗi hotspot là 1 grid
+        /// Setup fertile areas trên hex grid với cơ chế season (A/B).
         /// </summary>
         private void SetupHexGridFertileAreas()
         {
             if (hexGrid == null) return;
-            
-            hotspotGroups.Clear();
-            hotspotResourceCellsDirty = true;
-            fixedCaseCenterHotspotGroupIndex = -1;
+
+            List<Transform> seasonAAnchors = fertileAreasSeasonA != null && fertileAreasSeasonA.Count > 0
+                ? fertileAreasSeasonA
+                : fertileAreas;
+
+            hotspotGroupsSeasonA = GenerateHotspotGroupsForSeason(seasonAAnchors, out fixedCaseCenterHotspotGroupIndexSeasonA);
+            hotspotGroupsSeasonB = GenerateHotspotGroupsForSeason(fertileAreasSeasonB, out fixedCaseCenterHotspotGroupIndexSeasonB);
+
+            currentSeason = SimulationSeason.A;
+            seasonElapsedTime = 0f;
+            ApplySeason(SimulationSeason.A, false);
+        }
+
+        private List<List<HexCoordinates>> GenerateHotspotGroupsForSeason(List<Transform> sourceFertileAreas, out int centerGroupIndex)
+        {
+            centerGroupIndex = -1;
+            var generatedGroups = new List<List<HexCoordinates>>();
             var claimedCoords = new HashSet<HexCoordinates>();
             var allCells = hexGrid.GetAllCells();
             var availableCells = new List<HexCell>(allCells.Where(c => c != null && !c.isObstacle));
@@ -2455,45 +2779,28 @@ namespace Verrarium.Core
 
             if (enableFixedHotspotTestCase)
             {
-                SetupFixedHotspotTestCase(claimedCoords, availableCells, availableCoords);
-                RebuildHotspotIndex();
-                if (enableHotspotSpawnDebugLogs)
-                {
-                    string groupSizes = hotspotGroups.Count == 0
-                        ? "{}"
-                        : "{" + string.Join(", ", hotspotGroups.Select((g, i) => $"g{i}:{(g == null ? 0 : g.Count)}")) + "}";
-                    Debug.Log($"[HotspotSetup][FixedCase] groups={hotspotGroups.Count}/3, centerGroup={fixedCaseCenterHotspotGroupIndex}, groupSizes={groupSizes}");
-                }
-                return;
+                centerGroupIndex = SetupFixedHotspotTestCase(generatedGroups, claimedCoords, availableCells, availableCoords);
+                return generatedGroups;
             }
 
-            // Nếu có fertile areas được gán, đánh dấu các hex tương ứng
-            if (fertileAreas.Count > 0)
+            if (sourceFertileAreas != null && sourceFertileAreas.Count > 0)
             {
-                foreach (Transform fertileArea in fertileAreas)
+                foreach (Transform fertileArea in sourceFertileAreas)
                 {
-                    if (fertileArea != null)
-                    {
-                        HexCoordinates coords = hexGrid.WorldToHex(fertileArea.position);
-                        if (claimedCoords.Contains(coords)) continue;
+                    if (fertileArea == null) continue;
+                    HexCoordinates coords = hexGrid.WorldToHex(fertileArea.position);
+                    if (claimedCoords.Contains(coords)) continue;
 
-                        var group = BuildContiguousHotspotGroup(coords, gridsPerHotspot, claimedCoords, null);
-                        if (group.Count == 0) continue;
+                    var group = BuildContiguousHotspotGroup(coords, gridsPerHotspot, claimedCoords, null);
+                    if (group.Count == 0) continue;
 
-                        foreach (var c in group)
-                        {
-                            hexGrid.SetFertile(c, true);
-                            availableCoords.Remove(c);
-                        }
-
-                        hotspotGroups.Add(group);
-                    }
+                    foreach (var c in group) availableCoords.Remove(c);
+                    generatedGroups.Add(group);
                 }
 
-                // Nếu fertileAreas ít hơn numberOfHotspots, tự sinh thêm hotspot ngẫu nhiên để đạt target.
-                if (hotspotGroups.Count < numberOfHotspots)
+                if (generatedGroups.Count < numberOfHotspots)
                 {
-                    int hotspotsCreated = hotspotGroups.Count;
+                    int hotspotsCreated = generatedGroups.Count;
                     int maxAttempts = numberOfHotspots * 200;
                     int attempts = 0;
 
@@ -2510,16 +2817,14 @@ namespace Verrarium.Core
                         }
 
                         bool tooClose = false;
-                        foreach (var existingGroup in hotspotGroups)
+                        foreach (var existingGroup in generatedGroups)
                         {
-                            if (existingGroup.Count > 0)
+                            if (existingGroup.Count == 0) continue;
+                            int distance = candidateCoord.DistanceTo(existingGroup[0]);
+                            if (distance < minHotspotDistance)
                             {
-                                int distance = candidateCoord.DistanceTo(existingGroup[0]);
-                                if (distance < minHotspotDistance)
-                                {
-                                    tooClose = true;
-                                    break;
-                                }
+                                tooClose = true;
+                                break;
                             }
                         }
 
@@ -2538,29 +2843,22 @@ namespace Verrarium.Core
                             continue;
                         }
 
-                        foreach (var c in group)
-                        {
-                            hexGrid.SetFertile(c, true);
-                            availableCoords.Remove(c);
-                        }
+                        foreach (var c in group) availableCoords.Remove(c);
                         availableCells.RemoveAll(c => c != null && !availableCoords.Contains(c.Coordinates));
-                        hotspotGroups.Add(group);
+                        generatedGroups.Add(group);
                         hotspotsCreated++;
                     }
                 }
             }
             else
             {
-                // Tạo n hotspot, mỗi hotspot là gridsPerHotspot grid liền kề
                 int hotspotsCreated = 0;
-                int maxAttempts = numberOfHotspots * 200; // Giới hạn số lần thử
+                int maxAttempts = numberOfHotspots * 200;
                 int attempts = 0;
 
                 while (hotspotsCreated < numberOfHotspots && availableCells.Count > 0 && attempts < maxAttempts)
                 {
                     attempts++;
-                    
-                    // Chọn ngẫu nhiên một cell làm center của hotspot
                     HexCell candidateCell = availableCells[Random.Range(0, availableCells.Count)];
                     HexCoordinates candidateCoord = candidateCell.Coordinates;
                     if (!availableCoords.Contains(candidateCoord) || claimedCoords.Contains(candidateCoord))
@@ -2569,24 +2867,19 @@ namespace Verrarium.Core
                         availableCoords.Remove(candidateCoord);
                         continue;
                     }
-                    
-                    // Kiểm tra khoảng cách với các hotspot đã tạo (tính từ center của group)
+
                     bool tooClose = false;
-                    foreach (var existingGroup in hotspotGroups)
+                    foreach (var existingGroup in generatedGroups)
                     {
-                        // Lấy center của group (grid đầu tiên)
-                        if (existingGroup.Count > 0)
+                        if (existingGroup.Count == 0) continue;
+                        int distance = candidateCoord.DistanceTo(existingGroup[0]);
+                        if (distance < minHotspotDistance)
                         {
-                            int distance = candidateCoord.DistanceTo(existingGroup[0]);
-                            if (distance < minHotspotDistance)
-                            {
-                                tooClose = true;
-                                break;
-                            }
+                            tooClose = true;
+                            break;
                         }
                     }
-                    
-                    // Nếu đủ xa, tạo hotspot group với gridsPerHotspot grid
+
                     if (!tooClose)
                     {
                         var group = BuildContiguousHotspotGroup(candidateCoord, gridsPerHotspot, claimedCoords, availableCoords);
@@ -2597,53 +2890,91 @@ namespace Verrarium.Core
                             continue;
                         }
 
-                        // Nếu không build đủ size, vẫn tạo group nhưng log để dễ debug tuning
-                        if (group.Count < gridsPerHotspot)
-                        {
-                            Debug.LogWarning($"Hotspot group tại {candidateCoord} chỉ tạo được {group.Count}/{gridsPerHotspot} grids (có thể do obstacle/đã bị claim/không đủ không gian).");
-                        }
-
-                        foreach (var c in group)
-                        {
-                            hexGrid.SetFertile(c, true);
-                            availableCoords.Remove(c);
-                        }
+                        foreach (var c in group) availableCoords.Remove(c);
                         availableCells.RemoveAll(c => c != null && !availableCoords.Contains(c.Coordinates));
-
-                        hotspotGroups.Add(group);
+                        generatedGroups.Add(group);
                         hotspotsCreated++;
                     }
                     else
                     {
-                        // Xóa candidate cell khỏi danh sách để không thử lại
                         availableCells.Remove(candidateCell);
                         availableCoords.Remove(candidateCoord);
                     }
                 }
-                
+
                 if (hotspotsCreated < numberOfHotspots)
                 {
                     Debug.LogWarning($"Chỉ tạo được {hotspotsCreated}/{numberOfHotspots} hotspot do không đủ không gian với khoảng cách tối thiểu {minHotspotDistance}");
                 }
             }
 
-            RebuildHotspotIndex();
-            if (enableHotspotSpawnDebugLogs)
+            return generatedGroups;
+        }
+
+        private void ApplySeason(SimulationSeason season, bool clearQueuedSpawns)
+        {
+            currentSeason = season;
+
+            if (!enableSeasonSystem && season != SimulationSeason.A)
             {
-                string groupSizes = hotspotGroups.Count == 0
-                    ? "{}"
-                    : "{" + string.Join(", ", hotspotGroups.Select((g, i) => $"g{i}:{(g == null ? 0 : g.Count)}")) + "}";
-                Debug.Log($"[HotspotSetup] groups={hotspotGroups.Count}/{numberOfHotspots}, fertileAreas={fertileAreas.Count}, groupSizes={groupSizes}");
+                season = SimulationSeason.A;
+                currentSeason = SimulationSeason.A;
+            }
+
+            List<List<HexCoordinates>> groupsToApply = season == SimulationSeason.B && enableSeasonSystem
+                ? hotspotGroupsSeasonB
+                : hotspotGroupsSeasonA;
+            int fixedCenter = season == SimulationSeason.B && enableSeasonSystem
+                ? fixedCaseCenterHotspotGroupIndexSeasonB
+                : fixedCaseCenterHotspotGroupIndexSeasonA;
+
+            hotspotGroups = groupsToApply ?? new List<List<HexCoordinates>>();
+            fixedCaseCenterHotspotGroupIndex = fixedCenter;
+
+            hotspotResourceCellsDirty = true;
+            RebuildHotspotIndex();
+            ApplyHotspotVisuals();
+            InitializeGridFertility();
+
+            if (clearQueuedSpawns && pendingPlantSpawnQueue != null)
+            {
+                pendingPlantSpawnQueue.Clear();
             }
         }
 
-        private void SetupFixedHotspotTestCase(
+        private void ApplyHotspotVisuals()
+        {
+            if (hexGrid == null) return;
+            var allCells = hexGrid.GetAllCells();
+            if (allCells == null) return;
+
+            foreach (var cell in allCells)
+            {
+                if (cell == null) continue;
+                hexGrid.SetFertile(cell.Coordinates, false);
+            }
+
+            if (hotspotGroups == null) return;
+            foreach (var group in hotspotGroups)
+            {
+                if (group == null) continue;
+                foreach (var coord in group)
+                {
+                    hexGrid.SetFertile(coord, true);
+                }
+            }
+        }
+
+        private int SetupFixedHotspotTestCase(
+            List<List<HexCoordinates>> targetGroups,
             HashSet<HexCoordinates> claimedCoords,
             List<HexCell> availableCells,
             HashSet<HexCoordinates> availableCoords
         )
         {
-            if (hexGrid == null) return;
+            if (hexGrid == null) return -1;
+            if (targetGroups == null) return -1;
+            int centerGroupIndex = -1;
 
             float halfWidth = worldSize.x * 0.5f;
             float halfHeight = worldSize.y * 0.5f;
@@ -2683,13 +3014,15 @@ namespace Verrarium.Core
                     availableCells.RemoveAll(c => c != null && !availableCoords.Contains(c.Coordinates));
                 }
 
-                int newIndex = hotspotGroups.Count;
-                hotspotGroups.Add(group);
+                int newIndex = targetGroups.Count;
+                targetGroups.Add(group);
                 if (i == 0)
                 {
-                    fixedCaseCenterHotspotGroupIndex = newIndex;
+                    centerGroupIndex = newIndex;
                 }
             }
+            
+            return centerGroupIndex;
         }
 
         private bool TryFindClosestAvailableCell(
@@ -2949,6 +3282,142 @@ namespace Verrarium.Core
             return k - 1;
         }
 
+        private int AllocateCreatureId()
+        {
+            return nextCreatureId++;
+        }
+
+        private int ResolveParentCreatureId(CreatureLineageRecord lineageRecord)
+        {
+            if (lineageRecord == null || lineageRecord.Parent == null) return -1;
+            int parentLineageId = lineageRecord.Parent.LineageId;
+            for (int i = 0; i < activeCreatures.Count; i++)
+            {
+                var creature = activeCreatures[i];
+                if (creature == null) continue;
+                var record = creature.GetLineageRecord();
+                if (record != null && record.LineageId == parentLineageId)
+                {
+                    return creature.CreatureId;
+                }
+            }
+            return -1;
+        }
+
+        private List<string> ResolveMutationAtomsForSpawn(CreatureController creature, CreatureLineageRecord lineageRecord)
+        {
+            if (lineageRecord != null && pendingMutationAtomsByLineageId.TryGetValue(lineageRecord.LineageId, out var pending))
+            {
+                pendingMutationAtomsByLineageId.Remove(lineageRecord.LineageId);
+                return pending;
+            }
+
+            if (creature != null && creature.ParentCreatureId >= 0)
+            {
+                for (int i = 0; i < activeCreatures.Count; i++)
+                {
+                    var parent = activeCreatures[i];
+                    if (parent != null && parent.CreatureId == creature.ParentCreatureId)
+                    {
+                        return parent.MutationAtomIds;
+                    }
+                }
+            }
+
+            return new List<string>();
+        }
+
+        private static string TraitNameFromMutationIndex(int index)
+        {
+            switch (index)
+            {
+                case 0: return "size";
+                case 1: return "speed";
+                case 2: return "mouthRange";
+                case 3: return "mouthAngleRange";
+                case 4: return "diet";
+                case 5: return "health";
+                case 6: return "growthDuration";
+                case 7: return "growthEnergyThreshold";
+                case 8: return "reproAgeThreshold";
+                case 9: return "reproEnergyThreshold";
+                case 10: return "reproCooldown";
+                case 11: return "visionRange";
+                case 12: return "pheromoneType";
+                case 13: return "pheromoneCooldown";
+                case 14: return "pheromoneLifetime";
+                case 15: return "mutationRate";
+                case 16: return "brainMutationRate";
+                case 17: return "color";
+                default: return "unknownTrait";
+            }
+        }
+
+        private List<string> BuildChildMutationAtoms(CreatureController parent, List<int> mutatedTraitIndices, int numBrainMutations)
+        {
+            List<string> atoms = parent != null ? parent.MutationAtomIds : new List<string>();
+            List<string> childAtoms = atoms != null ? new List<string>(atoms) : new List<string>();
+            string prefix = $"m{simulationTime:F2}_{UnityEngine.Random.Range(1000, 9999)}";
+
+            if (mutatedTraitIndices != null)
+            {
+                for (int i = 0; i < mutatedTraitIndices.Count; i++)
+                {
+                    string traitName = TraitNameFromMutationIndex(mutatedTraitIndices[i]);
+                    childAtoms.Add($"{prefix}_g_{traitName}_{i}");
+                }
+            }
+
+            for (int i = 0; i < numBrainMutations; i++)
+            {
+                childAtoms.Add($"{prefix}_b_{i}");
+            }
+
+            // Giữ cửa sổ atom gần đây để tránh phình dữ liệu quá mức.
+            const int maxAtomsPerCreature = 128;
+            if (childAtoms.Count > maxAtomsPerCreature)
+            {
+                childAtoms = childAtoms.Skip(childAtoms.Count - maxAtomsPerCreature).ToList();
+            }
+            return childAtoms;
+        }
+
+        private static string BuildGenotypeHash(Genome genome, NEATNetwork brain)
+        {
+            var sb = new StringBuilder(512);
+            sb.Append(genome.size.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.speed.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.diet.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.health.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.growthDuration.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.reproAgeThreshold.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.reproEnergyThreshold.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.visionRange.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.mutationRate.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.brainMutationRate.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append(genome.color.r.ToString("F4", CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(genome.color.g.ToString("F4", CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(genome.color.b.ToString("F4", CultureInfo.InvariantCulture)).Append('|');
+            sb.Append((int)genome.pheromoneType);
+            if (brain != null)
+            {
+                sb.Append('|').Append(brain.NeuronCount).Append('|').Append(brain.ConnectionCount);
+            }
+            else
+            {
+                sb.Append("|0|0");
+            }
+
+            using SHA256 sha = SHA256.Create();
+            byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
+            var outSb = new StringBuilder(16);
+            for (int i = 0; i < 8 && i < hash.Length; i++)
+            {
+                outSb.Append(hash[i].ToString("x2"));
+            }
+            return outSb.ToString();
+        }
+
         // Getters cho thống kê
         public int CurrentPopulation => activeCreatures.Count;
         public int TotalBorn => totalCreaturesBorn;
@@ -2963,11 +3432,25 @@ namespace Verrarium.Core
         public int GetMaxPopulationSize() => maxPopulationSize;
         public float GetResourceSpawnInterval() => resourceSpawnInterval;
         public int GetPlantsPerSpawn() => resourcesPerSpawn; // Trả về resourcesPerSpawn thay vì plantsPerSpawn
+        public float GetResourceSpawnIntervalLimitMax() => Mathf.Max(0.5f, initialResourceSpawnInterval * 2f);
+        public int GetPlantsPerSpawnLimitMin() => 0;
+        public int GetPlantsPerSpawnLimitMax() => Mathf.Max(0, initialPlantsPerSpawnLimit);
         public Vector2 GetWorldSize() => worldSize;
+        public bool GetEnableNeutralRun() => enableNeutralRun;
+        public bool IsNeutralRunEnabled() => enableNeutralRun;
+        public float GetNeutralReproductionChancePerAttempt() => neutralReproductionChancePerAttempt;
+        public bool GetEnableSeasonSystem() => enableSeasonSystem;
+        public float GetSeasonDuration() => seasonDuration;
+        public string GetCurrentSeason() => currentSeason == SimulationSeason.B ? "B" : "A";
+        public float GetSeasonElapsedTime() => seasonElapsedTime;
 
         // Getters cho save/load
         public List<CreatureController> GetActiveCreatures() => new List<CreatureController>(activeCreatures);
         public List<Resource> GetActiveResources() => new List<Resource>(activeResources);
+        public List<PopulationSampleSaveData> GetPopulationSamples() => new List<PopulationSampleSaveData>(populationSamples);
+        public List<DeathRecordSaveData> GetDeathRecords() => new List<DeathRecordSaveData>(deathRecords);
+        public List<MutationEventSaveData> GetMutationEvents() => new List<MutationEventSaveData>(mutationEvents);
+        public List<InnovationActivitySampleSaveData> GetInnovationActivitySamples() => new List<InnovationActivitySampleSaveData>(innovationActivitySamples);
 
         // Setters cho điều chỉnh từ UI
         public void SetTargetPopulationSize(int value)
@@ -2985,7 +3468,13 @@ namespace Verrarium.Core
 
         public void SetResourceSpawnInterval(float value)
         {
-            resourceSpawnInterval = Mathf.Clamp(value, 0.5f, 10f);
+            resourceSpawnInterval = Mathf.Clamp(value, 0.5f, GetResourceSpawnIntervalLimitMax());
+
+            if (isWarmupInProgress)
+            {
+                return;
+            }
+
             // Cập nhật InvokeRepeating
             CancelInvoke(nameof(SpawnResources));
             InvokeRepeating(nameof(SpawnResources), resourceSpawnInterval, resourceSpawnInterval);
@@ -2993,7 +3482,8 @@ namespace Verrarium.Core
 
         public void SetPlantsPerSpawn(int value)
         {
-            resourcesPerSpawn = Mathf.Clamp(value, 1, 20); // Cập nhật resourcesPerSpawn thay vì plantsPerSpawn
+            resourcesPerSpawn = Mathf.Clamp(value, GetPlantsPerSpawnLimitMin(), GetPlantsPerSpawnLimitMax());
+            plantsPerSpawn = resourcesPerSpawn;
         }
 
         public void SetWorldSize(Vector2 newSize)
@@ -3004,6 +3494,18 @@ namespace Verrarium.Core
             );
             // Cập nhật ranh giới thế giới
             UpdateWorldBounds();
+        }
+
+        public void SetEnableSeasonSystem(bool enabled)
+        {
+            enableSeasonSystem = enabled;
+            seasonElapsedTime = 0f;
+            ApplySeason(SimulationSeason.A, true);
+        }
+
+        public void SetSeasonDuration(float value)
+        {
+            seasonDuration = Mathf.Max(1f, value);
         }
 
         public void SetBaseMetabolicRate(float value)
@@ -3040,11 +3542,28 @@ namespace Verrarium.Core
             maxPopulationSize = saveData.maxPopulationSize;
             resourceSpawnInterval = saveData.resourceSpawnInterval;
             plantsPerSpawn = saveData.plantsPerSpawn;
+            enableNeutralRun = saveData.enableNeutralRun;
             worldSize = saveData.worldSize;
             enableWorldBorder = saveData.enableWorldBorder;
+            enableSeasonSystem = saveData.enableSeasonSystem;
+            seasonDuration = Mathf.Max(1f, saveData.seasonDuration <= 0f ? seasonDuration : saveData.seasonDuration);
+            seasonElapsedTime = Mathf.Max(0f, saveData.seasonElapsedTime);
+            currentSeason = saveData.currentSeason == "B" ? SimulationSeason.B : SimulationSeason.A;
             simulationTime = saveData.simulationTime;
             totalCreaturesBorn = saveData.totalCreaturesBorn;
             totalCreaturesDied = saveData.totalCreaturesDied;
+            populationSamples.Clear();
+            deathRecords.Clear();
+            mutationEvents.Clear();
+            innovationActivitySamples.Clear();
+            innovationActivityById.Clear();
+            innovationLastSeenById.Clear();
+            innovationCumulativeActivity = 0f;
+            pendingMutationAtomsByLineageId.Clear();
+            if (saveData.populationSamples != null) populationSamples.AddRange(saveData.populationSamples);
+            if (saveData.deathRecords != null) deathRecords.AddRange(saveData.deathRecords);
+            if (saveData.mutationEvents != null) mutationEvents.AddRange(saveData.mutationEvents);
+            if (saveData.innovationActivitySamples != null) innovationActivitySamples.AddRange(saveData.innovationActivitySamples);
             // Khôi phục thời điểm bắt đầu giả lập (hoặc dùng thời điểm hiện tại nếu save cũ không có trường này)
             simulationStartTime = saveData.simulationStartTime == default
                 ? System.DateTime.Now
@@ -3052,6 +3571,7 @@ namespace Verrarium.Core
 
             // Update world bounds
             UpdateWorldBounds();
+            ApplySeason(currentSeason, true);
 
             // Restore resources
             foreach (var resourceData in saveData.resources)
@@ -3114,9 +3634,26 @@ namespace Verrarium.Core
                             creatureData.age,
                             creatureData.offspringCount
                         );
+                        int restoredCreatureId = creatureData.creatureId >= 0 ? creatureData.creatureId : AllocateCreatureId();
+                        creature.SetTelemetryIdentity(
+                            restoredCreatureId,
+                            creatureData.parentCreatureId,
+                            string.IsNullOrEmpty(creatureData.genotypeHash)
+                                ? BuildGenotypeHash(creatureData.genome, brain)
+                                : creatureData.genotypeHash
+                        );
+                        creature.SetMutationAtomIds(creatureData.mutationAtomIds);
                     }
                 }
             }
+
+            int maxKnownCreatureId = deathRecords.Count > 0 ? deathRecords.Max(d => d.creatureId) : -1;
+            foreach (var c in activeCreatures)
+            {
+                if (c != null && c.CreatureId > maxKnownCreatureId) maxKnownCreatureId = c.CreatureId;
+            }
+            nextCreatureId = Mathf.Max(maxKnownCreatureId + 1, 1);
+            nextMetricSampleTime = simulationTime;
 
             // Restart resource spawning
             CancelInvoke(nameof(SpawnResources));
@@ -3163,6 +3700,16 @@ namespace Verrarium.Core
             {
                 genusSystem.Reset();
             }
+
+            populationSamples.Clear();
+            deathRecords.Clear();
+            mutationEvents.Clear();
+            innovationActivitySamples.Clear();
+            innovationActivityById.Clear();
+            innovationLastSeenById.Clear();
+            innovationCumulativeActivity = 0f;
+            pendingMutationAtomsByLineageId.Clear();
+            nextCreatureId = 1;
         }
 
         /// <summary>

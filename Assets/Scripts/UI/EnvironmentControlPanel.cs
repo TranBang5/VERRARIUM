@@ -87,15 +87,15 @@ namespace Verrarium.UI
             if (resourceSpawnIntervalSlider != null)
             {
                 resourceSpawnIntervalSlider.minValue = 0.5f;
-                resourceSpawnIntervalSlider.maxValue = 10f;
+                resourceSpawnIntervalSlider.maxValue = supervisor.GetResourceSpawnIntervalLimitMax();
                 resourceSpawnIntervalSlider.onValueChanged.AddListener(OnResourceSpawnIntervalChanged);
             }
 
             // Plants Per Spawn
             if (plantsPerSpawnSlider != null)
             {
-                plantsPerSpawnSlider.minValue = 1;
-                plantsPerSpawnSlider.maxValue = 20;
+                plantsPerSpawnSlider.minValue = supervisor.GetPlantsPerSpawnLimitMin();
+                plantsPerSpawnSlider.maxValue = supervisor.GetPlantsPerSpawnLimitMax();
                 plantsPerSpawnSlider.wholeNumbers = true;
                 plantsPerSpawnSlider.onValueChanged.AddListener(OnPlantsPerSpawnChanged);
             }
@@ -135,23 +135,23 @@ namespace Verrarium.UI
 
             // Load từ supervisor
             if (targetPopulationSlider != null)
-                targetPopulationSlider.value = supervisor.GetTargetPopulationSize();
+                targetPopulationSlider.SetValueWithoutNotify(supervisor.GetTargetPopulationSize());
             
             if (maxPopulationSlider != null)
-                maxPopulationSlider.value = supervisor.GetMaxPopulationSize();
+                maxPopulationSlider.SetValueWithoutNotify(supervisor.GetMaxPopulationSize());
             
             if (resourceSpawnIntervalSlider != null)
-                resourceSpawnIntervalSlider.value = supervisor.GetResourceSpawnInterval();
+                resourceSpawnIntervalSlider.SetValueWithoutNotify(supervisor.GetResourceSpawnInterval());
             
             if (plantsPerSpawnSlider != null)
-                plantsPerSpawnSlider.value = supervisor.GetPlantsPerSpawn();
+                plantsPerSpawnSlider.SetValueWithoutNotify(supervisor.GetPlantsPerSpawn());
             
             Vector2 worldSize = supervisor.GetWorldSize();
             if (worldSizeXSlider != null)
-                worldSizeXSlider.value = worldSize.x;
+                worldSizeXSlider.SetValueWithoutNotify(worldSize.x);
             
             if (worldSizeYSlider != null)
-                worldSizeYSlider.value = worldSize.y;
+                worldSizeYSlider.SetValueWithoutNotify(worldSize.y);
 
             // Cập nhật text values
             UpdateAllValueTexts();

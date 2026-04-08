@@ -37,12 +37,23 @@ namespace Verrarium.Save
         public int maxResources;
         public float resourceDecayTime;
         public float resourceSpawnPopulationThreshold;
+        public bool enableNeutralRun = false;
+        public bool enableSeasonSystem;
+        public float seasonDuration;
+        public string currentSeason = "A";
+        public float seasonElapsedTime;
         
         // Creatures
         public List<CreatureSaveData> creatures = new List<CreatureSaveData>();
         
         // Resources
         public List<ResourceSaveData> resources = new List<ResourceSaveData>();
+
+        // Telemetry for analysis metrics
+        public List<PopulationSampleSaveData> populationSamples = new List<PopulationSampleSaveData>();
+        public List<DeathRecordSaveData> deathRecords = new List<DeathRecordSaveData>();
+        public List<MutationEventSaveData> mutationEvents = new List<MutationEventSaveData>();
+        public List<InnovationActivitySampleSaveData> innovationActivitySamples = new List<InnovationActivitySampleSaveData>();
     }
 
     /// <summary>
@@ -51,6 +62,10 @@ namespace Verrarium.Save
     [Serializable]
     public class CreatureSaveData
     {
+        public int creatureId = -1;
+        public int parentCreatureId = -1;
+        public string genotypeHash;
+        public List<string> mutationAtomIds = new List<string>();
         public Genome genome;
         public NEATNetworkSaveData brain;
         public Vector2 position;
@@ -72,6 +87,69 @@ namespace Verrarium.Save
         public int speciesInGenusId = -1;  // Species ID trong Genus (-1 = chưa phân loại)
         // Trường cũ giữ lại để tương thích (được gán cùng giá trị speciesInGenusId)
         public int speciesId = -1;
+    }
+
+    [Serializable]
+    public class PopulationSampleSaveData
+    {
+        public float simulationTime;
+        public int currentPopulation;
+    }
+
+    [Serializable]
+    public class DeathRecordSaveData
+    {
+        public int creatureId = -1;
+        public int parentCreatureId = -1;
+        public string genotypeHash;
+        public List<string> mutationAtomIds = new List<string>();
+        public float birthTime;
+        public float deathTime;
+        public float lifespan;
+        public float maturityAtDeath;
+        public int offspringCount;
+        public float totalEnergyGained;
+        public int neuronCount;
+        public int connectionCount;
+        public int generationIndex = -1;
+        public int genusId = -1;
+        public int speciesId = -1;
+    }
+
+    [Serializable]
+    public class MutationEventSaveData
+    {
+        public string mutationId;
+        public float simulationTime;
+        public int parentCreatureId = -1;
+        public int childCreatureId = -1;
+        public string parentGenotypeHash;
+        public string childGenotypeHash;
+        public List<string> mutationAtomIds = new List<string>();
+        public int genomeMutationCount;
+        public int brainMutationCount;
+    }
+
+    [Serializable]
+    public class InnovationActivityEntrySaveData
+    {
+        public string innovationId;
+        public int carrierCount;
+        public float activity;
+    }
+
+    [Serializable]
+    public class InnovationActivitySampleSaveData
+    {
+        public float simulationTime;
+        public int diversity;
+        public float totalActivityActive;
+        public float totalActivityAdaptive;
+        public float cumulativeActivityAllTime;
+        public float cumulativeActivityAdaptive;
+        public float adaptiveThresholdL;
+        public int adaptiveInnovationCount;
+        public List<InnovationActivityEntrySaveData> topInnovations = new List<InnovationActivityEntrySaveData>();
     }
 
     /// <summary>

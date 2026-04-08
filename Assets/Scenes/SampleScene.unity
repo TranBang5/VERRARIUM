@@ -7767,19 +7767,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e3af7c976870e154780ec183a00d0209, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Verrarium.Core.SimulationSupervisor
-  targetPopulationSize: 500
-  maxPopulationSize: 1000
+  targetPopulationSize: 1000
+  maxPopulationSize: 1200
   creaturePrefab: {fileID: 7206632933255935328, guid: 226a852cb4ccfa4489a90e370ab1131b, type: 3}
   eggPrefab: {fileID: 5149547163793781786, guid: 008d580af5ff6974a88c57798406abe6, type: 3}
   plantPrefab: {fileID: 8780977596621055720, guid: 64f8972f03ab37e4587f5807491bea97, type: 3}
   meatPrefab: {fileID: 4565611464628917305, guid: 903af74ac858a9241ba80490be56bfc3, type: 3}
   enablePlantPooling: 1
   initialPlantPoolSize: 128
-  resourceSpawnInterval: 50
-  resourcesPerSpawn: 20
-  initialResources: 1000
+  resourceSpawnInterval: 60
+  resourcesPerSpawn: 250
+  initialResources: 2000
   resourceDecayTime: 300
-  minResourceDistance: 0.1
+  minResourceDistance: 0.2
   maxResources: 10000
   plantsPerSpawn: 2
   resourceSpawnPopulationThreshold: 1
@@ -7800,9 +7800,14 @@ MonoBehaviour:
   plantDecayFertilityRestoreAmount: 1
   creatureDeathFertilityRestoreMin: 1
   creatureDeathFertilityRestoreMax: 3
-  numberOfHotspots: 8
-  gridsPerHotspot: 400
-  minHotspotDistance: 30
+  numberOfHotspots: 4
+  gridsPerHotspot: 1200
+  minHotspotDistance: 60
+  fertileAreasSeasonA:
+  - {fileID: 0}
+  fertileAreasSeasonB: []
+  enableSeasonSystem: 1
+  seasonDuration: 1200
   enableFixedHotspotTestCase: 0
   fixedHotspotEdgeMargin: 1.5
   drainDecayInterval: 180
@@ -7820,6 +7825,13 @@ MonoBehaviour:
   fertileAreas: []
   enableAutosave: 1
   autosaveInterval: 600
+  enableMetricTelemetry: 1
+  metricSampleInterval: 5
+  behaviorSamplesPerTick: 8
+  maxBehaviorSamples: 10000
+  maxPopulationSamples: 5000
+  maxDeathRecords: 50000
+  maxMutationEvents: 50000
   enableWarmupPhase: 1
   warmupDuration: 20
   warmupResourceInterval: 1
